@@ -37,6 +37,7 @@ These features span multiple repos and have dedicated spec files describing the 
 | RAG pipeline | `what/rag-pipeline.md` | rag-content, service, operator |
 | Deployment lifecycle | `what/deployment-lifecycle.md` | operator, service, console |
 | Query pipeline | `what/query-pipeline.md` | console, service, operator, rag-content |
+| Compliance audit logging | `what/audit-logging.md` | agentic-operator, agentic-sandbox, service, operator, agentic-console |
 
 ## Planned Changes
 

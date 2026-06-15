@@ -30,6 +30,7 @@ AI agents. Content is optimized for precision and machine consumption.
 | Understand how the operator deploys everything | `what/deployment-lifecycle.md` |
 | Understand how a user query is processed | `what/query-pipeline.md` |
 | Understand the agentic security model | `what/agentic-security.md` |
+| Understand the compliance audit logging system | `what/audit-logging.md` |
 | Check cross-repo rules | `constraints.md` |
 
 ## Conventions
