@@ -364,3 +364,4 @@ Each child repo needs an audit logging spec with implementation details. The par
 | Ticket | Summary |
 |---|---|
 | [PLANNED] | Auto-detection of OpenShift logging OTLP endpoint |
+| OLS-3328 | Temporary audit log storage in PostgreSQL via custom OTel Collector (see `templog.md`) |
