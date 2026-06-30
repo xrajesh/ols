@@ -35,6 +35,10 @@ The Kubernetes operator that deploys and manages all OpenShift Lightspeed compon
 11a. [PLANNED: OLS-3236] **Alerts Adapter**: Single-replica Go deployment. Polls AlertManager for firing alerts and creates `Proposal` CRs. `ALERTMANAGER_URL` env hardcoded to `https://alertmanager-main.openshift-monitoring.svc:9094`. Status condition: `AlertsAdapterReady`.
 11b. [PLANNED: OLS-3236] **Agentic Console**: Single-replica nginx deployment with TLS via service-ca cert. ConsolePlugin CR created and activated in the Console CR alongside the classic console plugin. Status condition: `AgenticConsolePluginReady`.
 
+### Resource Conventions [OLS-3397]
+
+11c. All operator-managed container defaults follow the [OpenShift resource conventions](https://github.com/openshift/enhancements/blob/master/CONVENTIONS.md#resources-and-limits): defaults declare CPU and memory requests only, and do not set resource limits. This applies to all containers across all deployments (Console UI, PostgreSQL, App Server and its sidecars). Users may override via the CRD to set limits if their environment requires it. The RHOKP sidecar's ~75 GiB ephemeral storage requirement is unaffected by this convention.
+
 ### External Resource Watching
 
 12. The operator watches annotated external resources (secrets, configmaps) for data changes.
@@ -95,3 +99,4 @@ The operator accepts image overrides at startup: `--service-image`, `--console-i
 | Ticket | Summary |
 |---|---|
 | OLS-3236 | Deploy agentic-alerts-adapter and agentic-console-plugin as reconciled operands of the lightspeed-operator. Migrate agentic-console deployment from agentic-operator. |
+| OLS-3397 | Remove default resource limits from all operator-managed containers per OpenShift conventions. Keep requests only. CRD still accepts user-specified limits. |
