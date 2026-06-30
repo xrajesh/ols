@@ -24,6 +24,7 @@ estimates and risk-assesses every item.
 | Setting | Value |
 |---------|-------|
 | Project key | `OLS` |
+| Agentic parent feature | `OCPSTRAT-3095` (agentic Epics live here) |
 | Cloud ID | `redhat.atlassian.net` |
 | Content format | `markdown` |
 | SP field | `customfield_10028` |
@@ -103,18 +104,57 @@ Feed the brainstorming session with:
 The brainstorming output is the proposed work breakdown —
 it is NOT yet approved for Jira creation.
 
-## Step 3: Resolve Parent
+## Step 3: Resolve Parent Epic
 
-If the user provided a Jira key as an argument, use it as
-the parent.
+### Parent feature routing
 
-If no parent was provided, ask:
+OLS work falls under different parent features depending
+on scope:
 
-> What Epic or Feature should these items live under?
-> Provide a Jira key (e.g. OLS-1234) or say "new" to
-> create a new Epic.
+| Scope | Parent Feature |
+|-------|---------------|
+| Agentic OLS (operators, sandbox, proposals, alerts adapter, agentic console) | **OCPSTRAT-3095** |
+| Classic OLS (service, console, RAG, operator deployment of classic components) | Ask the user |
 
-Do NOT proceed without a parent.
+When the spec changes touch agentic components, Epics
+must live under OCPSTRAT-3095. For classic OLS work,
+ask the user which feature to parent under.
+
+### 3a. Search existing Epics under the parent feature
+
+Before creating a new Epic, query existing Epics under
+the resolved parent feature:
+
+```
+searchJiraIssuesUsingJql:
+  cloudId: redhat.atlassian.net
+  jql: >
+    parent = {PARENT_FEATURE}
+    AND issuetype = Epic
+    AND resolution = Unresolved
+  fields: ["summary", "status"]
+  maxResults: 100
+```
+
+Evaluate whether the proposed stories fit under an
+existing Epic. Match by scope — e.g. operator deployment
+stories belong under an operator deployment Epic.
+
+### 3b. Propose parent
+
+Present the evaluation to the user:
+
+- If an existing Epic fits → propose placing stories
+  under it, with rationale
+- If no existing Epic fits → propose creating a new Epic
+  under the parent feature, with rationale
+
+If the user provided a Jira key as an argument, still
+verify it lives under the correct parent feature.
+
+**Wait for the user to confirm the parent before
+proceeding.** Do NOT create items without an approved
+parent Epic.
 
 ## Step 4: Search Existing Jira Items
 
