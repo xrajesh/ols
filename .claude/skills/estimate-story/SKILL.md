@@ -28,7 +28,7 @@ Works for Stories, Bugs, Tasks, Weaknesses, and Vulnerabilities.
 
 ## Rubric Location
 
-Read the full rubric from: `/mnt/host-workspace/ols/story-point-rubric.md`
+Read the full rubric from: `story-point-rubric.md` (in the workspace root)
 
 You MUST read this file before estimating. It contains:
 - Point definitions (0, 0.5, 1, 2, 3, 5) with characteristics and code complexity data
@@ -42,7 +42,7 @@ You MUST read this file before estimating. It contains:
 ### Step 1: Read the rubric
 
 ```
-Read /mnt/host-workspace/ols/story-point-rubric.md
+Read story-point-rubric.md
 ```
 
 ### Step 2: Parse story keys from arguments
