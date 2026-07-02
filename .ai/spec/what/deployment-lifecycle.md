@@ -19,7 +19,7 @@ The Kubernetes operator that deploys and manages all OpenShift Lightspeed compon
 5. The operator generates ConfigMaps: `olsconfig` (from CR spec), system prompt override, MCP config, agentic console nginx config.
 6. The operator creates or updates Secrets: LLM credentials (from provider `credentialsSecretRef`), custom TLS (from `tlsConfig.keyCertSecretRef`).
 7. The operator creates ServiceAccounts, Roles, RoleBindings for console, PostgreSQL, app server, alerts adapter, and agentic console.
-7a. [PLANNED: OLS-3236] For the alerts adapter: ServiceAccount, ClusterRole (`agentic.openshift.io/proposals`: create, list, get), ClusterRoleBinding, RoleBinding in `openshift-monitoring` (binds SA to `monitoring-alertmanager-view`).
+7a. [PLANNED: OLS-3236] For the alerts adapter: ServiceAccount, ClusterRole (`agentic.openshift.io/agenticruns`: create, list, get), ClusterRoleBinding, RoleBinding in `openshift-monitoring` (binds SA to `monitoring-alertmanager-view`).
 7b. [PLANNED: OLS-3236] For the agentic console: ServiceAccount.
 8. The operator creates NetworkPolicies for all components (including alerts adapter and agentic console).
 
@@ -32,7 +32,7 @@ The Kubernetes operator that deploys and manages all OpenShift Lightspeed compon
     - Data collector sidecar (if feedback/transcripts enabled and telemetry secret exists)
     - OpenShift MCP server sidecar (if introspection enabled)
     - BYOK RAG init containers (copy customer index content from OCI image to shared volume, when `spec.ols.rag` configured)
-11a. [PLANNED: OLS-3236] **Alerts Adapter**: Single-replica Go deployment. Polls AlertManager for firing alerts and creates `Proposal` CRs. `ALERTMANAGER_URL` env hardcoded to `https://alertmanager-main.openshift-monitoring.svc:9094`. Status condition: `AlertsAdapterReady`.
+11a. [PLANNED: OLS-3236] **Alerts Adapter**: Single-replica Go deployment. Polls AlertManager for firing alerts and creates `AgenticRun` CRs. `ALERTMANAGER_URL` env hardcoded to `https://alertmanager-main.openshift-monitoring.svc:9094`. Status condition: `AlertsAdapterReady`.
 11b. [PLANNED: OLS-3236] **Agentic Console**: Single-replica nginx deployment with TLS via service-ca cert. ConsolePlugin CR created and activated in the Console CR alongside the classic console plugin. Status condition: `AgenticConsolePluginReady`.
 
 ### Resource Conventions [OLS-3397]
@@ -91,7 +91,7 @@ The operator accepts image overrides at startup: `--service-image`, `--console-i
 | **lightspeed-operator** | OLSConfig CR reconciliation, resource generation (ConfigMaps, Secrets, RBAC, NetworkPolicies), deployment creation and health monitoring, external resource watching, restart triggers, status reporting, finalizer cleanup, console plugin activation, image version selection per OCP version. [PLANNED: OLS-3236] Also deploys agentic alerts adapter and agentic console plugin as reconciled operands. |
 | **lightspeed-service** | Reads generated `olsconfig.yaml` at startup. Does not participate in deployment — is deployed by the operator. |
 | **lightspeed-console** | Static files served by nginx. ConsolePlugin CR registered by the operator. Does not self-deploy. |
-| **lightspeed-agentic-alerts-adapter** | [PLANNED: OLS-3236] Polls AlertManager, creates Proposal CRs. Deployed by the lightspeed-operator. Does not self-deploy. |
+| **lightspeed-agentic-alerts-adapter** | [PLANNED: OLS-3236] Polls AlertManager, creates AgenticRun CRs. Deployed by the lightspeed-operator. Does not self-deploy. |
 | **lightspeed-agentic-console** | [PLANNED: OLS-3236] Static files served by nginx. ConsolePlugin CR registered by the lightspeed-operator. Does not self-deploy. |
 
 ## Planned Changes

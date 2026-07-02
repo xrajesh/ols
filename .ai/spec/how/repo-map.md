@@ -65,9 +65,9 @@ Lookup table: concern → repo(s) → spec file(s). Use this to find where to go
 
 | Concern | Repo | Spec Files |
 |---|---|---|
-| Proposal lifecycle (analysis → execution → verification) | lightspeed-agentic-operator | `what/proposal-lifecycle.md` |
+| AgenticRun lifecycle (analysis → execution → verification) | lightspeed-agentic-operator | `what/run-lifecycle.md` |
 | Approval gates & policies | lightspeed-agentic-operator | `what/approval.md` |
-| Agentic CRD API (Proposal, Agent, LLMProvider) | lightspeed-agentic-operator | `what/crd-api.md` |
+| Agentic CRD API (AgenticRun, Agent, LLMProvider) | lightspeed-agentic-operator | `what/crd-api.md` |
 | Sandbox provisioning & execution | lightspeed-agentic-operator | `what/sandbox-execution.md` |
 | Reconciler implementation | lightspeed-agentic-operator | `how/reconciler.md` |
 | CLI (oc-agentic) | lightspeed-agentic-operator | `how/cli.md` |
@@ -77,7 +77,7 @@ Lookup table: concern → repo(s) → spec file(s). Use this to find where to go
 
 | Concern | Repo | Spec Files |
 |---|---|---|
-| Proposal list/detail UI | lightspeed-agentic-console | `what/proposal-lifecycle.md` |
+| AgenticRun list/detail UI | lightspeed-agentic-console | `what/run-lifecycle.md` |
 | Dynamic configuration components | lightspeed-agentic-console | `what/dynamic-components.md` |
 | Configuration UI (approval policies, providers, agents) | lightspeed-agentic-console | `what/configuration.md` |
 | Console plugin system integration | lightspeed-agentic-console | `how/console-plugin-system.md` |
@@ -98,7 +98,7 @@ Lookup table: concern → repo(s) → spec file(s). Use this to find where to go
 | Concern | Repo | Spec Files |
 |---|---|---|
 | Alert polling & deduplication | lightspeed-agentic-alerts-adapter | `AGENTS.md` (no `.ai/spec/` yet) |
-| Proposal CR creation | lightspeed-agentic-alerts-adapter | `AGENTS.md` |
+| AgenticRun CR creation | lightspeed-agentic-alerts-adapter | `AGENTS.md` |
 | Cooldown logic | lightspeed-agentic-alerts-adapter | `AGENTS.md` |
 
 ## Tooling
@@ -114,7 +114,7 @@ These features span multiple repos. See the parent `what/` files for end-to-end 
 
 | Feature | Parent Spec | Repos |
 |---|---|---|
-| Agentic proposal lifecycle | `what/agentic-proposals.md` | alerts-adapter, agentic-operator, agentic-sandbox, agentic-console |
+| Agentic run lifecycle | `what/agentic-runs.md` | alerts-adapter, agentic-operator, agentic-sandbox, agentic-console |
 | Agentic security (approval auth, SA isolation) | `what/agentic-security.md` | agentic-operator, agentic-console |
 | RAG pipeline (OKP + BYOK) | `what/rag-pipeline.md` | rag-content, service, operator |
 | Deployment lifecycle | `what/deployment-lifecycle.md` | operator, service, console, alerts-adapter [PLANNED: OLS-3236], agentic-console [PLANNED: OLS-3236] |

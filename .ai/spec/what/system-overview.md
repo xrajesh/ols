@@ -17,10 +17,10 @@ The core Q&A assistant. A user asks a question in the console, the service proce
 
 Autonomous cluster operations. Alerts or user requests trigger multi-phase AI workflows (analysis → approval → execution → verification) that can take actions on the cluster through sandboxed agents.
 
-5. **lightspeed-agentic-operator** (Go/kubebuilder) — Orchestrates `Proposal` CRs through multi-phase workflows, manages sandbox pods, enforces approval policies, materializes RBAC for execution. Spec: `lightspeed-agentic-operator/.ai/spec/README.md`
-6. **lightspeed-agentic-console** (TypeScript/React) — Console plugin providing the AI Hub UI for viewing, approving, and monitoring proposals. Configuration for approval policies, LLM providers, and agent tiers. Spec: `lightspeed-agentic-console/.ai/spec/README.md`
+5. **lightspeed-agentic-operator** (Go/kubebuilder) — Orchestrates `AgenticRun` CRs through multi-phase workflows, manages sandbox pods, enforces approval policies, materializes RBAC for execution. Spec: `lightspeed-agentic-operator/.ai/spec/README.md`
+6. **lightspeed-agentic-console** (TypeScript/React) — Console plugin providing the AI Hub UI for viewing, approving, and monitoring agentic runs. Configuration for approval policies, LLM providers, and agent tiers. Spec: `lightspeed-agentic-console/.ai/spec/README.md`
 7. **lightspeed-agentic-sandbox** (Python/FastAPI) — Containerized agent runtime. Wraps multiple LLM provider SDKs (Claude, Gemini, OpenAI) behind a unified `/v1/agent/run` HTTP endpoint with structured output and tool execution. Spec: `lightspeed-agentic-sandbox/.ai/spec/README.md`
-8. **lightspeed-agentic-alerts-adapter** (Go) — Stateless bridge. Polls AlertManager for firing alerts, creates `Proposal` CRs with deduplication and cooldown logic. Guide: `lightspeed-agentic-alerts-adapter/AGENTS.md`
+8. **lightspeed-agentic-alerts-adapter** (Go) — Stateless bridge. Polls AlertManager for firing alerts, creates `AgenticRun` CRs with deduplication and cooldown logic. Guide: `lightspeed-agentic-alerts-adapter/AGENTS.md`
 
 ### Tooling
 
@@ -33,7 +33,7 @@ These features span multiple repos and have dedicated spec files describing the 
 
 | Feature | Spec File | Repos Involved |
 |---|---|---|
-| Agentic proposal lifecycle | `what/agentic-proposals.md` | alerts-adapter, agentic-operator, agentic-sandbox, agentic-console |
+| Agentic run lifecycle | `what/agentic-runs.md` | alerts-adapter, agentic-operator, agentic-sandbox, agentic-console |
 | RAG pipeline | `what/rag-pipeline.md` | rag-content, service, operator |
 | Deployment lifecycle | `what/deployment-lifecycle.md` | operator, service, console |
 | Query pipeline | `what/query-pipeline.md` | console, service, operator, rag-content |

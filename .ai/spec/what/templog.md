@@ -1,6 +1,6 @@
 # Temporary Audit Log Storage
 
-Stopgap audit log persistence for environments without cluster logging or SIEM. Stores agentic system audit events in the existing PostgreSQL instance via a custom OpenTelemetry Collector built with OCB. Logs are tied to Proposal lifecycle — deleted when the Proposal CR is deleted.
+Stopgap audit log persistence for environments without cluster logging or SIEM. Stores agentic system audit events in the existing PostgreSQL instance via a custom OpenTelemetry Collector built with OCB. Logs are tied to AgenticRun lifecycle — deleted when the AgenticRun CR is deleted.
 
 ## Requirements & Principles
 
@@ -8,7 +8,7 @@ Stopgap audit log persistence for environments without cluster logging or SIEM. 
 
 2. **Default on.** `AgenticOLSConfig.spec.templog` defaults to `true`. The Collector deploys unless the admin explicitly sets `spec.templog: false`.
 
-3. **Proposal-scoped lifecycle.** Audit logs are tied to their Proposal CR. When a Proposal is deleted, a finalizer ensures all associated rows are deleted from PostgreSQL before the CR is removed. No separate retention policy, TTL, or eviction logic.
+3. **Run-scoped lifecycle.** Audit logs are tied to their AgenticRun CR. When an AgenticRun is deleted, a finalizer ensures all associated rows are deleted from PostgreSQL before the CR is removed. No separate retention policy, TTL, or eviction logic.
 
 4. **Independent of tracing.** `spec.audit.otel.endpoint` handles spans (tracing). This feature handles logs. Both can operate simultaneously. The custom Collector runs its own log-only pipeline; it does not interfere with the tracing endpoint.
 
@@ -86,9 +86,9 @@ CREATE TABLE templogs.logs (
 CREATE INDEX idx_logs_trace_id ON templogs.logs (trace_id);
 ```
 
-- **`trace_id`** — Proposal `metadata.uid` with hyphens stripped (32-char hex). Primary query and cleanup key. Deterministically derived from the Proposal CR, not dependent on any OTEL infrastructure.
+- **`trace_id`** — AgenticRun `metadata.uid` with hyphens stripped (32-char hex). Primary query and cleanup key. Deterministically derived from the AgenticRun CR, not dependent on any OTEL infrastructure.
 - **`timestamp`** — Event timestamp from the OTLP log record.
-- **`event`** — Event discriminator (`audit.proposal.received`, `audit.agent.tool.call`, etc.). Extracted from log record attributes for filtering without parsing JSONB.
+- **`event`** — Event discriminator (`audit.agenticrun.received`, `audit.agent.tool.call`, etc.). Extracted from log record attributes for filtering without parsing JSONB.
 - **`body`** — Full structured JSON audit event as-is. Same content that goes to stdout. No transformation or field extraction beyond the dedicated columns.
 
 The `templogs` schema is created by the Postgres bootstrap script (same mechanism as `quota` and `conversation_cache` schemas).
@@ -170,13 +170,13 @@ Ships one artifact: a container image with the custom Collector binary.
 2. Remove the OTLP log endpoint env var from agentic-operator and sandbox pods
 3. The `templogs` schema is left in place (no destructive cleanup of data on disable)
 
-## Proposal Finalizer & Cleanup
+## AgenticRun Finalizer & Cleanup
 
 ### Agentic-operator responsibility
 
 - **Finalizer name:** `agentic.openshift.io/templog-cleanup`
-- **Added when:** Proposal CR is created and `templog` is enabled (agentic-operator reads this from an env var set by the lightspeed-operator)
-- **On Proposal deletion:**
+- **Added when:** AgenticRun CR is created and `templog` is enabled (agentic-operator reads this from an env var set by the lightspeed-operator)
+- **On AgenticRun deletion:**
   1. Finalizer fires
   2. Operator connects to Postgres: `DELETE FROM templogs.logs WHERE trace_id = $1`
   3. On success, removes the finalizer — CR deletion proceeds
@@ -184,8 +184,8 @@ Ships one artifact: a container image with the custom Collector binary.
 
 ### Edge cases
 
-- **`templog` disabled after logs were written.** Finalizer was already added at Proposal creation. It still fires on deletion. The operator connects directly to Postgres (which it manages) to delete the rows. The finalizer does not depend on the Collector being present.
-- **Postgres unavailable.** Finalizer blocks. Proposal CR cannot be deleted until cleanup succeeds. Correct behavior for a compliance-adjacent feature.
+- **`templog` disabled after logs were written.** Finalizer was already added at AgenticRun creation. It still fires on deletion. The operator connects directly to Postgres (which it manages) to delete the rows. The finalizer does not depend on the Collector being present.
+- **Postgres unavailable.** Finalizer blocks. AgenticRun CR cannot be deleted until cleanup succeeds. Correct behavior for a compliance-adjacent feature.
 
 ## Agentic Component Changes
 
@@ -193,8 +193,8 @@ Ships one artifact: a container image with the custom Collector binary.
 
 - When the OTLP log endpoint env var is set, emit audit events as OTLP log records to that endpoint
 - Dual emission: stdout always, OTLP when configured (same pattern as the existing tracing design)
-- Add `agentic.openshift.io/templog-cleanup` finalizer to new Proposals when templog is enabled
-- Finalizer handler: delete audit log rows from Postgres on Proposal deletion
+- Add `agentic.openshift.io/templog-cleanup` finalizer to new AgenticRuns when templog is enabled
+- Finalizer handler: delete audit log rows from Postgres on AgenticRun deletion
 
 ### Agentic-sandbox
 
@@ -207,7 +207,7 @@ Ships one artifact: a container image with the custom Collector binary.
 |---|---|
 | **lightspeed-otel-postgres-collector** | OCB manifest, custom `postgresexporter` Go code, Dockerfile, Konflux build pipeline. Ships the Collector container image. |
 | **lightspeed-operator** | Read `AgenticOLSConfig.spec.templog`. Deploy/remove Collector Deployment, Service, ConfigMap, NetworkPolicy. Add `templogs` schema to Postgres bootstrap. Wire OTLP log endpoint to agentic pods. CRD change: add `spec.templog` to `AgenticOLSConfig`. |
-| **lightspeed-agentic-operator** | Add OTLP log emission when endpoint is configured. Add `agentic.openshift.io/templog-cleanup` finalizer to Proposals. Finalizer handler: delete rows from `templogs.logs` on Proposal deletion. |
+| **lightspeed-agentic-operator** | Add OTLP log emission when endpoint is configured. Add `agentic.openshift.io/templog-cleanup` finalizer to AgenticRuns. Finalizer handler: delete rows from `templogs.logs` on AgenticRun deletion. |
 | **lightspeed-agentic-sandbox** | Add OTLP log emission when endpoint is configured. |
 
 ## Child Spec Updates Required
@@ -226,11 +226,12 @@ Ships one artifact: a container image with the custom Collector binary.
 ## Cross-References
 
 - `audit-logging.md` — Audit event catalog, correlation model, structured JSON format
-- `agentic-proposals.md` — Proposal lifecycle, CRD definitions, phase transitions
+- `agentic-runs.md` — AgenticRun lifecycle, CRD definitions, phase transitions
 - Lightspeed-operator `postgres.md` — PostgreSQL deployment, bootstrap, credentials
 
 ## Planned Changes
 
 | Ticket | Summary |
 |---|---|
+| OLS-3295 | Rename `Proposal` → `AgenticRun` across templog finalizer, cleanup, and audit event references |
 | OLS-3328 | Implement temporary audit log storage |
