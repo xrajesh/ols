@@ -224,6 +224,20 @@ createJiraIssue:
   parent: "{parent key}"
 ```
 
+Immediately after creating each item, transition it from
+**New** to **Refinement** (transition ID `31`):
+
+```
+transitionJiraIssue:
+  cloudId: {cloudId}
+  issueIdOrKey: "{newly created key}"
+  transition:
+    id: "31"
+```
+
+This applies to every created Epic and Story. Do not leave
+any item in New status.
+
 ### Updating items
 
 Fetch the current description first, then merge changes:
@@ -344,11 +358,13 @@ Options:
 
 1. Create new Epic (if proposed) via `createJiraIssue`
 2. Create the smaller stories via `createJiraIssue`
-3. Close or update the original oversized story — add a
+3. Transition every newly created item to **Refinement**
+   (transition ID `31`) — same as Step 6
+4. Close or update the original oversized story — add a
    comment noting it was split, link to the new stories
-4. Re-run `/estimate-story` and `/estimate-risk` on the new
+5. Re-run `/estimate-story` and `/estimate-risk` on the new
    stories
-5. Re-run `/estimate-epic` on all affected Epics
+6. Re-run `/estimate-epic` on all affected Epics
 
 ## Step 9: Report
 
