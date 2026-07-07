@@ -18,7 +18,7 @@ Multi-phase AI workflows that diagnose and remediate cluster issues. An alert fi
 7. If approval is required, the operator waits for an `AgenticRunApproval` CR granting analysis. If automatic, it proceeds immediately.
 8. The operator provisions a sandbox pod (bare-pod or sandbox-claim mode) using a derived `SandboxTemplate`.
 9. The operator calls `POST /v1/agent/run` on the sandbox with the analysis request, output schema for remediation options, and context (target namespaces).
-10. The sandbox executes the request using the configured LLM provider (Claude, Gemini, or OpenAI) and returns structured remediation options (diagnosis, proposed actions, RBAC requirements, verification plan).
+10. The sandbox executes the request using the configured LLM provider (Claude, Gemini, or OpenAI) and returns structured remediation options. Each option contains a concrete remediation script (ordered bash commands using kubectl/oc) and RBAC requirements derived from those commands. The analysis prompt instructs the agent to inspect cluster state with kubectl/oc before diagnosing, and to derive RBAC by tracing every command in its script.
 11. The operator stores the result in an immutable `AnalysisResult` CR owned by the AgenticRun.
 12. The analysis output includes an `actionRequired` boolean and a top-level `Diagnosis` (summary, confidence, rootCause). When `actionRequired` is false, the `Options` array may be empty (`minItems: 0`); the top-level `Diagnosis` captures the agent's explanation of why no remediation is needed.
 13. When the operator stores an `AnalysisResult` with `actionRequired=false`, it sets the `Analyzed` condition to `True` with reason `NoActionRequired`. The AgenticRun auto-transitions to the `NoActionRequired` terminal phase, bypassing Proposed/Approval/Execution/Verification entirely.
@@ -32,8 +32,8 @@ Multi-phase AI workflows that diagnose and remediate cluster issues. An alert fi
 ### Phase 4: Execution
 
 17. The operator materializes RBAC (ServiceAccount, Role, RoleBinding) scoped to the approved option's requirements.
-18. The operator calls the sandbox with the execution request, passing the approved option and RBAC context.
-19. The sandbox agent executes the remediation actions.
+18. The operator calls the sandbox with the execution request, passing the approved option and RBAC context. The execution prompt instructs the agent to follow the concrete bash script exactly and to dry-run mutation commands with `--dry-run=server` before executing.
+19. The sandbox agent executes the remediation actions by running the approved bash commands in order.
 20. The operator stores the result in an immutable `ExecutionResult` CR.
 
 ### Phase 5: Verification
@@ -85,7 +85,7 @@ Context envelope varies by phase:
 ### Shared Data Formats
 
 - **Alert fingerprint**: 8-char prefix for deterministic AgenticRun naming and deduplication
-- **AnalysisResult schema**: includes `actionRequired` (bool) and a top-level `Diagnosis` (summary, confidence, rootCause). When `actionRequired` is false, `Options` may be empty. Each `RemediationOption` contains diagnosis, remediation plan (`plan` field), RBAC requirements, verification plan. The `RemediationPlan` struct holds description, actions, risk, and reversibility.
+- **AnalysisResult schema**: includes `actionRequired` (bool) and a top-level `Diagnosis` (summary, confidence, rootCause). When `actionRequired` is false, `Options` may be empty. Each `RemediationOption` contains diagnosis, remediation plan (`plan` field), RBAC requirements, verification plan. The `RemediationPlan` struct holds description, actions, risk, and reversibility. Each action includes `command` (exact bash command, required, 1-4096 chars), `type` (phase category: pre-check, mutation, wait, post-check), and `description`. RBAC requirements are derived from the script commands, with `get`/`list`/`watch` as minimum read verbs for every resource.
 - **Phase derivation**: from status.conditions with precedence EmergencyStopped > Escalated > Denied > Verified > Executed > Analyzed (with `NoActionRequired` reason → `NoActionRequired` phase, otherwise → Proposed)
 - **LLM config env vars**: `LIGHTSPEED_PROVIDER`, `LIGHTSPEED_MODEL`, `LIGHTSPEED_PROVIDER_URL`, and region/project/api-version variants
 
@@ -109,3 +109,4 @@ Context envelope varies by phase:
 | OLS-3033 | Operator-passed `allowedTools` and `llm` aligned with `ProviderQueryOptions` |
 | OLS-3268 | Analysis can signal `actionRequired=false` to auto-complete with `NoActionRequired` phase |
 | OLS-3295 | Rename `Proposal` → `AgenticRun`, `ProposalApproval` → `AgenticRunApproval`, `ProposalResult` → `RemediationPlan` across CRDs, API, CLI, console, and docs |
+| OLS-3441 | Script-grounded RBAC: analysis produces concrete bash scripts and derives RBAC from commands; execution dry-runs mutations before applying |
