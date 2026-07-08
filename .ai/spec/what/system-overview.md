@@ -52,3 +52,4 @@ These features span multiple repos and have dedicated spec files describing the 
 | Ticket | Summary |
 |---|---|
 | OLS-2743 | Rebranding to "Red Hat OpenShift Intelligent Assistant" |
+| OLS-3473 | Remove Claude SDK and binaries from agentic-sandbox. Reroute Vertex/Anthropic and Bedrock paths to alternative agentic SDKs. |
