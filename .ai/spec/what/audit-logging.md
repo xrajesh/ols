@@ -2,144 +2,186 @@
 
 Durable, reconstructable audit trail of AI actions across the OpenShift Lightspeed system. Required by EU AI Act and similar regulations. The agentic system (takes cluster actions) is highest priority; OLS (makes recommendations via troubleshoot mode) is also in scope.
 
+Telemetry aligns with [OTel GenAI Semantic Conventions](https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/README.md) (v1.41) for spans, metrics, and structured logs. See the OTel GenAI Attribute Reference section for the full attribute catalog.
+
 ## Requirements & Principles
 
-1. **Dual emission.** Both OTEL spans and structured JSON to stdout on every audit event. OTEL provides distributed tracing when a collector is available; structured JSON provides durable logs via OpenShift log aggregation (always available).
+1. **Single-emission, dual-destination.** Each audit-significant datum is recorded exactly once as an OTel span or span event. Two exporters on the same TracerProvider produce two views: (a) OTLP exporter sends spans to a trace backend when an endpoint is configured; (b) stdout exporter serializes the same span data as OTLP JSON to stdout (always, when audit enabled). Application-level loggers (Go `logr`, Python `logging`) emit only developer-debugging messages and MUST NOT re-emit data that appears in spans or span events.
 
-2. **Graceful degradation.** OTEL exporter endpoint is optional on both `OLSConfig` and `AgenticOLSConfig` CRs. When unconfigured, a no-op exporter is used. Structured JSON always emits regardless.
+2. **Graceful degradation.** OTEL exporter endpoint is optional on both `OLSConfig` and `AgenticOLSConfig` CRs. When unconfigured, a no-op OTLP exporter is used. The stdout exporter always emits regardless — this is what any log aggregator (Loki, Splunk, Fluentd, etc.) reads from container logs.
 
 3. **On/off, full fidelity.** Audit logging is enabled or disabled per CR (`OLSConfig`, `AgenticOLSConfig`). When enabled, everything emits at full fidelity — every LLM turn, every tool call input/output, every thinking block. No verbosity dial. This is an audit trail, not operational logging.
 
 4. **No redaction of audit logs.** Redaction is an input-to-LLM concern, not a logging concern.
 
-5. **CR serialization is the compliance record.** Ephemeral Kubernetes CRs are serialized into the log stream at creation (immutable Result CRs) and at mutation (AgenticRunApproval on PATCH, AgenticRun status at phase transitions). Serialization includes `.spec` plus `metadata.name`, `metadata.namespace`, `metadata.creationTimestamp`, and `metadata.uid` — not the full Kubernetes metadata. The log system is the durable record, not etcd. CR serialization always emits when audit logging is enabled.
+5. **CR serialization is the compliance record.** Ephemeral Kubernetes CRs are serialized into the span event stream at creation (immutable Result CRs) and at mutation (AgenticRunApproval on PATCH, AgenticRun status at phase transitions). Key fields from the CR are **span attributes** (queryable in trace backends); full CR serialization is a **span event attribute** (viewable at full fidelity). Serialization includes `.spec`, `.status` (for Result CRs), plus `metadata.name`, `metadata.namespace`, `metadata.creationTimestamp`, and `metadata.uid` — not the full Kubernetes metadata. The stdout exporter does NOT truncate — full fidelity is preserved. The OTLP exporter may truncate based on backend limits, but the stdout signal is the compliance record.
 
-6. **Sandbox/service logs are the forensic record.** Real-time agent events capture the process (LLM text output, thinking, tool calls). CR serialization captures the decisions. Both are required; overlap is intentional; they serve different audiences.
+6. **Sandbox/service spans are the forensic record.** Real-time agent events capture the process (LLM text output, thinking, tool calls) as OTel span events attached to inference spans. CR serialization captures the decisions. Both are required; overlap is intentional; they serve different audiences.
 
 7. **Human approval identity.** Mutating admission webhook on AgenticRunApproval PATCH injects authenticated user identity (`uid`, `username`) from the admission review. Authoritative for all paths (console, kubectl, API). Console populates approval decision fields; webhook adds/overwrites identity fields. See Mutating Admission Webhook section.
 
 8. **No console-side audit events.** Both consoles are presentation layers. Every consequential action creates a CR or makes an API call captured by the receiving backend.
 
-9. **Log size is the aggregator's problem.** Full CR content (`.spec` + select metadata) is serialized without truncation.
+9. **Log size is the aggregator's problem.** Full CR content (`.spec` + `.status` + select metadata) is serialized without truncation in the stdout exporter.
 
 ## Correlation Model
 
-### Agentic System
+### Agentic System — Per-Phase Traces
 
-One key on every audit log line and span:
+Each phase of a Proposal lifecycle gets its own trace. The Proposal UID links all phase traces as a correlation attribute.
 
-- **`trace_id`** — the AgenticRun CR's `metadata.uid` with hyphens stripped to produce a 32-char hex string. Serves as unique identity, OTEL trace ID, and sole correlation key. Survives AgenticRun name reuse after deletion. Persists across operator restarts (read from the CR). Propagated to sandbox via W3C `traceparent` header on `/v1/agent/run` calls.
+- **`proposal.uid`** — the Proposal CR's `metadata.uid` with hyphens stripped to produce a 32-char hex string. Carried as a **span attribute** (not the trace ID) on every span in every phase trace. This is the cross-trace correlation key. Users query `proposal.uid = X` to see all phase traces for a Proposal.
+- **`proposal.name`** and **`proposal.namespace`** — also carried as span attributes on every span for convenience.
+- **Per-phase trace IDs** — each phase (analysis, execution, verification, escalation) gets a fresh, auto-generated OTEL trace ID. The operator creates the root span for each phase and propagates trace context to the sandbox via W3C `traceparent` header on `/v1/agent/run` calls.
+- **Span Links** — each phase trace's root span includes an OTel Span Link back to the prior phase's root span, giving trace UIs a "click to see previous phase" affordance.
+- **Human approval** — recorded as a standalone short-lived trace (just the approval event, not the wait time). Wait duration is derived from timestamps between the analysis-completed and approval-received traces.
+- **On retry** (verification failure → re-execute) — new traces are created for the retry execution and verification phases. Retry index is a span attribute.
 
-Note: agentic events do not carry a `user_id` — AgenticRuns are created by the alerts-adapter (a service account), not a human. The human identity enters the audit trail at approval time via the mutating webhook (`audit.approval.received`).
+Note: agentic events do not carry a `user_id` — AgenticRuns are created by the alerts-adapter (a service account), not a human. The human identity enters the audit trail at approval time via the mutating webhook (`proposal.approval.completed` span event).
 
-### OLS (lightspeed-service)
+### OLS (lightspeed-service) — Per-Request Traces
 
-Two keys on every audit log line and span:
+Each HTTP request gets its own trace. The conversation ID links all request traces as a correlation attribute.
 
-- **`trace_id`** — the `conversation_id` UUID with hyphens stripped. Links all events within a conversation across turns. Also used as OTEL trace ID.
-- **`user_id`** — authenticated user identity from k8s token validation. Present on every audit event.
+- **`gen_ai.conversation.id`** — the `conversation_id` UUID. Carried as a span attribute on every span. Users query `gen_ai.conversation.id = X` to see all requests in a conversation.
+- **Per-request trace IDs** — each incoming request generates a fresh, auto-generated OTEL trace ID. Individual request traces are clean single-root trees.
+- **`user_id`** — authenticated user identity from k8s token validation. Present as a span attribute on every span.
 
-### CR Serialization Metadata Fields
+### CR Serialization Model
 
-All serialized CRs include: `metadata.name`, `metadata.namespace`, `metadata.creationTimestamp`, `metadata.uid`, plus `.spec`.
+Operator CR payloads (AnalysisResult, ExecutionResult, etc.) use a split model:
+
+- **Key fields → span attributes** (queryable in trace backends): `result.name`, `result.uid`, `options.count`, `phase`, `terminal.reason`.
+- **Full CR serialization → span event attributes** (viewable, full fidelity): complete `.spec` + `.status` + select metadata as a single event attribute. Event names follow the audit event catalog (e.g., `proposal.analysis.completed`).
+
+All serialized CRs include: `metadata.name`, `metadata.namespace`, `metadata.creationTimestamp`, `metadata.uid`, plus `.spec` and `.status` (for Result CRs).
 
 ## Agentic Audit Event Catalog
 
 ### Operator Events
 
-Emitted at each phase transition during AgenticRun reconciliation. Each carries `trace_id` (= AgenticRun `metadata.uid`, hyphens stripped) and the serialized CR content.
+Emitted as OTel span events attached to the operator's phase spans. Each carries `proposal.uid`, `proposal.name`, and `proposal.namespace` as span attributes on the parent span.
 
-| Event | When | Payload |
+| Span Event | When | Attributes |
 |---|---|---|
-| `audit.agenticrun.received` | New AgenticRun CR detected | AgenticRun `.spec` + select metadata |
-| `audit.analysis.completed` | AnalysisResult CR created | AnalysisResult serialization (all RemediationOptions) |
-| `audit.approval.received` | AgenticRunApproval PATCH observed | Approver `uid`/`username` (webhook-injected), selected option, full text of selected option |
-| `audit.execution.completed` | ExecutionResult CR created | ExecutionResult serialization (all ActionsTaken) |
-| `audit.verification.completed` | VerificationResult CR created, checks passed | VerificationResult serialization |
-| `audit.verification.retry` | Verification failed, retrying execution+verification | VerificationResult serialization, retry count |
-| `audit.escalation.completed` | EscalationResult CR created | EscalationResult serialization |
-| `audit.agenticrun.terminal` | AgenticRun reaches terminal phase (Completed, Failed, Denied, Escalated) | Final phase, terminal reason |
+| `proposal.received` | New Proposal CR detected | Full Proposal CR serialization |
+| `proposal.analysis.completed` | AnalysisResult CR created | `result.name`, `result.uid`, `options.count` + full AnalysisResult CR serialization |
+| `proposal.approval.completed` | ProposalApproval PATCH observed | `approver.uid`, `approver.username`, selected option, full text of selected option |
+| `proposal.execution.completed` | ExecutionResult CR created | `result.name`, `result.uid`, `actions_taken.count` + full ExecutionResult CR serialization |
+| `proposal.verification.completed` | VerificationResult CR created, checks passed | `result.name`, `result.uid`, `checks.count` + full VerificationResult CR serialization |
+| `proposal.verification.retry` | Verification failed, retrying | `result.name`, `retry_count`, `checks.count` + full VerificationResult CR serialization |
+| `proposal.escalation.completed` | EscalationResult CR created | Full EscalationResult CR serialization |
+| `proposal.terminal` | Proposal reaches terminal phase | `phase`, `reason` |
 
 ### Sandbox Events
 
-Emitted in real-time from the SDK event stream during agent execution. Each carries `trace_id` (received via `traceparent` header from operator). The sandbox does not run its own agent loop — it consumes events from the provider SDK's internal agentic loop (Claude `query()`, OpenAI `Runner.run_streamed()`, Gemini `Runner.run_async()`).
+Emitted as OTel spans and span events during agent execution. The sandbox receives trace context from the operator via `traceparent` header. The sandbox does not run its own agent loop — it consumes events from the provider SDK's internal agentic loop (Claude `query()`, OpenAI `Runner.run_streamed()`, Gemini `Runner.run_async()`).
 
-| Event | When | Payload | Notes |
+**Spans** (with duration):
+
+| Span Name | Kind | When | Key Attributes |
 |---|---|---|---|
-| `audit.agent.started` | Before SDK agent call begins | Phase, model, provider | |
-| `audit.agent.text` | SDK yields complete text block | Text content | LLM's visible reasoning between tool calls. Buffered per-message, not per-token. |
-| `audit.agent.thinking` | SDK yields thinking delta | Thinking content | Claude only; OpenAI/Gemini do not expose thinking blocks. |
-| `audit.agent.tool.call` | SDK yields tool call event | Tool name, input arguments | All three SDKs expose this. |
-| `audit.agent.tool.result` | SDK yields tool result event | Tool name, output, success/failure | All three SDKs expose this. |
-| `audit.agent.completed` | SDK run finishes | Success/failure, total tokens, total cost | Token counts at run level only — per-turn counts not available from SDKs. |
+| `chat {gen_ai.request.model}` | `CLIENT` | Full SDK inference call | `gen_ai.operation.name`, `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.provider.name`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `proposal.uid` |
+| `execute_tool {gen_ai.tool.name}` | `INTERNAL` | Each tool call/result pair | `gen_ai.operation.name`, `gen_ai.tool.name`, `gen_ai.tool.call.id`, `gen_ai.tool.type` |
+
+**Span events** (point-in-time, attached to the inference span):
+
+| Event Name | When | Attributes |
+|---|---|---|
+| `gen_ai.content.completion` | SDK yields complete text block | `gen_ai.completion` |
+| `gen_ai.agent.thinking` | SDK yields thinking delta | `content` (Claude only) |
 
 ## OLS Audit Event Catalog
 
-Every event carries `trace_id` (= `conversation_id` hyphens stripped) and `user_id`.
+Every span carries `gen_ai.conversation.id` and `user_id` as span attributes.
 
-| Event | When | Payload |
+**Spans** (with duration):
+
+| Span Name | Kind | When | Key Attributes |
+|---|---|---|---|
+| `request.lifecycle` | `INTERNAL` | Full HTTP request lifecycle | `gen_ai.conversation.id`, `user_id` |
+| `request.auth` | `INTERNAL` | User authentication | `user_id` |
+| `request.rag` | `INTERNAL` | RAG chunk retrieval | Chunk count, source documents |
+| `request.history` | `INTERNAL` | Conversation history load | Turn count, compressed (yes/no) |
+| `chat {gen_ai.request.model}` | `CLIENT` | Each LLM turn | `gen_ai.operation.name`, `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.provider.name`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens` |
+| `execute_tool {gen_ai.tool.name}` | `INTERNAL` | Each tool call | `gen_ai.operation.name`, `gen_ai.tool.name`, `gen_ai.tool.call.id`, MCP attributes when MCP-sourced |
+| `request.store` | `INTERNAL` | Response storage | |
+
+**Span events** (point-in-time, attached to the LLM turn span):
+
+| Event Name | When | Attributes |
 |---|---|---|
-| `audit.request.started` | Request enters the service | Mode (ask/troubleshooting), query text, attachments, provider/model |
-| `audit.request.auth` | User authenticated | User identity from k8s token |
-| `audit.rag.retrieved` | RAG chunks retrieved | Chunk count, similarity scores, source documents |
-| `audit.history.retrieved` | Conversation history loaded | Turn count, compressed (yes/no) |
-| `audit.llm.turn` | Each LLM turn completes | Turn index, token counts (input/output), cost |
-| `audit.llm.thinking` | LLM emits reasoning/thinking | Thinking content |
-| `audit.llm.text` | LLM emits text output | Text content |
-| `audit.tool.call` | Tool invocation starts | Tool name, MCP server, input arguments |
-| `audit.tool.result` | Tool invocation completes | Tool name, output, success/failure, duration |
-| `audit.tool.approval.requested` | Tool requires human approval | Tool name, approval ID |
-| `audit.tool.approval.decision` | User approves/denies tool | Approval ID, decision, tool name |
-| `audit.request.completed` | Response fully streamed | Total turns, total tokens, total cost, referenced documents |
+| `gen_ai.content.completion` | LLM emits text output | `gen_ai.completion` |
+| `gen_ai.agent.thinking` | LLM emits reasoning/thinking | `content` |
 
-Note: OLS runs its own tool-calling loop (not an SDK agentic loop), so per-turn token counts are available.
+Note: OLS runs its own tool-calling loop (not an SDK agentic loop), so per-turn token counts are available via `gen_ai.usage.input_tokens` and `gen_ai.usage.output_tokens` on each `chat {model}` span.
 
 ## OTEL Span Hierarchy
 
-### Agentic System
+### Agentic System — Per-Phase Traces
 
+Each phase is its own trace. Traces are linked by `proposal.uid` span attribute and OTel Span Links.
+
+**Analysis phase trace:**
 ```
-agenticrun.lifecycle            [operator, root, trace_id = AgenticRun metadata.uid]
-├── agenticrun.analyze          [operator]
-│   └── agent.run               [sandbox, via traceparent header]
-│       └── agent.turn          [sandbox]
-│           └── tool.{name}     [sandbox]
-├── agenticrun.human_approval   [operator]
-├── agenticrun.execute          [operator]
-│   └── agent.run               [sandbox, via traceparent header]
-│       └── agent.turn          [sandbox]
-│           └── tool.{name}     [sandbox]
-├── agenticrun.verify           [operator]
-│   └── agent.run               [sandbox, via traceparent header]
-│       └── agent.turn          [sandbox]
-│           └── tool.{name}     [sandbox]
-└── agenticrun.escalate         [operator]
-    └── agent.run               [sandbox, via traceparent header]
+proposal.analyze                [operator, root, INTERNAL, proposal.uid=<UID>]
+└── chat claude-sonnet-4-...    [sandbox, CLIENT, via traceparent]
+    ├── execute_tool Bash       [sandbox, INTERNAL]
+    ├── execute_tool Bash       [sandbox, INTERNAL]
+    └── (span events: gen_ai.content.completion, gen_ai.agent.thinking)
 ```
 
-On retry (verification failure → re-execute), new `agenticrun.execute` and `agenticrun.verify` child spans are created under the same root. The retry index is a span attribute.
-
-`agenticrun.human_approval` is a span that starts when the operator begins waiting for approval and ends when the AgenticRunApproval PATCH is observed. Duration = human decision time.
-
-### OLS (lightspeed-service)
-
+**Approval trace:**
 ```
-request.lifecycle               [service, root, trace_id = conversation_id]
-├── request.auth                [service]
-├── request.rag                 [service]
-├── request.history             [service]
-├── llm.turn                    [service, repeats per turn]
-│   └── tool.{name}             [service, repeats per tool call]
-└── request.store               [service]
+proposal.human_approval         [operator, root, INTERNAL, proposal.uid=<UID>, linked→analysis trace]
+└── (span event: proposal.approval.completed with approver identity)
 ```
 
-For multi-turn conversations, each request is a separate trace sharing the same `conversation_id` as trace ID. Multiple requests in a conversation produce traces with the same trace ID — spans are uniquely identified by trace_id + span_id, so querying by trace ID returns the full conversation.
+**Execution phase trace:**
+```
+proposal.execute                [operator, root, INTERNAL, proposal.uid=<UID>, linked→approval trace]
+└── chat claude-sonnet-4-...    [sandbox, CLIENT, via traceparent]
+    ├── execute_tool Bash       [sandbox, INTERNAL]
+    └── (span events: gen_ai.content.completion)
+```
+
+**Verification phase trace:**
+```
+proposal.verify                 [operator, root, INTERNAL, proposal.uid=<UID>, linked→execution trace]
+└── chat claude-sonnet-4-...    [sandbox, CLIENT, via traceparent]
+    └── execute_tool Bash       [sandbox, INTERNAL]
+```
+
+**Terminal trace:**
+```
+proposal.terminal               [operator, root, INTERNAL, proposal.uid=<UID>, linked→verify trace]
+└── (span event: proposal.terminal with phase and reason)
+```
+
+On retry (verification failure → re-execute), new execution and verification traces are created with `retry_index` as a span attribute.
+
+### OLS (lightspeed-service) — Per-Request Traces
+
+Each HTTP request is its own trace. Traces are linked by `gen_ai.conversation.id` span attribute.
+
+```
+request.lifecycle               [service, root, INTERNAL, gen_ai.conversation.id=<conv_id>]
+├── request.auth                [service, INTERNAL]
+├── request.rag                 [service, INTERNAL]
+├── request.history             [service, INTERNAL]
+├── chat gpt-4o                 [service, CLIENT, repeats per LLM turn]
+│   ├── execute_tool search     [service, INTERNAL, repeats per tool call]
+│   └── (span events: gen_ai.content.completion, gen_ai.agent.thinking)
+└── request.store               [service, INTERNAL]
+```
+
+For multi-turn conversations, each request produces a separate trace. All traces for the same conversation share `gen_ai.conversation.id` as a span attribute. Query by `gen_ai.conversation.id` to see the full conversation.
 
 ## Mutating Admission Webhook
 
 ### Purpose
 
-Inject authenticated user identity into AgenticRunApproval on PATCH. Serves two needs: audit logging (emit `audit.approval.received` with identity) and UI display (persist identity on the CR).
+Inject authenticated user identity into AgenticRunApproval on PATCH. Serves two needs: audit logging (emit `proposal.approval.completed` span event with identity) and UI display (persist identity on the CR).
 
 ### Mechanics
 
@@ -148,8 +190,8 @@ Inject authenticated user identity into AgenticRunApproval on PATCH. Serves two 
 - **Action:**
   1. Read `request.userInfo.username` and `request.userInfo.uid` from the AdmissionReview.
   2. Write `spec.approver.uid`, `spec.approver.username`, `spec.approver.timestamp` into the CR, overwriting any client-submitted values.
-  3. Emit `audit.approval.received` log event with user identity and `trace_id` (AgenticRun's `metadata.uid`, read from the CR's owner reference).
-- **Hosted by:** The agentic-operator controller-manager (same process, same logging/OTEL infrastructure).
+  3. Emit approval span event with user identity and `proposal.uid` (Proposal's `metadata.uid`, read from the CR's owner reference).
+- **Hosted by:** The agentic-operator controller-manager (same process, same OTel tracer).
 - **Failure mode:** Fail-closed — if the webhook is unavailable, the API server rejects the PATCH. Correct default for a compliance-critical path.
 - **TLS:** Webhook certificate managed by the operator's existing cert infrastructure.
 
@@ -193,164 +235,133 @@ spec:
 
 ### Defaults
 
-If `spec.audit` is absent entirely, behavior is `enabled: true` with no-op OTEL export. Structured JSON audit events emit to stdout. The user must explicitly set `enabled: false` to disable.
+If `spec.audit` is absent entirely, behavior is `enabled: true` with no-op OTLP exporter. The stdout exporter always emits OTLP JSON to stdout. The user must explicitly set `enabled: false` to disable.
 
 ### Propagation
 
 - The lightspeed-operator reads `OLSConfig.spec.audit` and generates the corresponding config in `olsconfig.yaml` for lightspeed-service to consume.
 - The agentic-operator reads `AgenticOLSConfig.spec.audit` directly and passes the OTEL endpoint to the sandbox (env var or config mount).
-- Structured JSON always goes to stdout when enabled — this is what any log aggregator (Loki, Splunk, Fluentd, etc.) reads from container logs.
-- OTEL is additive — gives distributed tracing visualization (Jaeger/Tempo) when an endpoint is configured.
+- The stdout exporter always emits when audit is enabled — this is what any log aggregator (Loki, Splunk, Fluentd, etc.) reads from container logs.
+- The OTLP exporter is additive — gives distributed tracing visualization (Jaeger/Tempo) when an endpoint is configured.
 
 ### Auto-Detection
 
 Auto-detection of OpenShift logging OTLP endpoints: [DEFERRED].
 
-## Structured JSON Log Format
+## Structured Log Format — OTLP JSON
 
-Every audit event emits as a single JSON line to stdout. Consistent format across all components.
+Audit events are emitted as OTel spans and span events. The stdout exporter serializes them as OTLP JSON — the same wire format used by the OTLP exporter. This means the stdout output IS valid OTLP that can be replayed into a trace backend if the OTLP exporter was offline.
 
-### Agentic Operator Event
+### Single-Emission Rule
 
-```json
-{
-  "timestamp": "2026-06-11T14:30:00.000Z",
-  "level": "info",
-  "event": "audit.analysis.completed",
-  "trace_id": "f47ac10b58cc4372a5670e02b2c3d479",
-  "payload": {
-    "metadata": {
-      "name": "fix-nginx-abc12345-analysis-1",
-      "namespace": "openshift-monitoring",
-      "creationTimestamp": "2026-06-11T14:30:00Z",
-      "uid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
-    },
-    "spec": {}
-  }
-}
-```
+Each audit-significant datum is recorded exactly once, as an OTel span or span event. The stdout and OTLP exporters are two destinations for the same emission, not two separate emission paths. Application-level loggers (Go `logr`, Python `logging`) emit only developer-debugging messages and MUST NOT re-emit data that appears in spans or span events.
 
-### Sandbox Agent Events
+### Stdout Exporter Behavior
 
-```json
-{
-  "timestamp": "2026-06-11T14:30:00.000Z",
-  "level": "info",
-  "event": "audit.agent.started",
-  "trace_id": "f47ac10b58cc4372a5670e02b2c3d479",
-  "phase": "analysis",
-  "model": "claude-sonnet-4-20250514",
-  "provider": "anthropic"
-}
-```
-
-```json
-{
-  "timestamp": "2026-06-11T14:30:01.000Z",
-  "level": "info",
-  "event": "audit.agent.text",
-  "trace_id": "f47ac10b58cc4372a5670e02b2c3d479",
-  "phase": "analysis",
-  "content": "The pod is in CrashLoopBackOff due to OOMKilled. Let me check the resource limits."
-}
-```
-
-```json
-{
-  "timestamp": "2026-06-11T14:30:01.500Z",
-  "level": "info",
-  "event": "audit.agent.thinking",
-  "trace_id": "f47ac10b58cc4372a5670e02b2c3d479",
-  "phase": "analysis",
-  "content": "I should check memory limits on the container spec..."
-}
-```
-
-```json
-{
-  "timestamp": "2026-06-11T14:30:02.000Z",
-  "level": "info",
-  "event": "audit.agent.tool.call",
-  "trace_id": "f47ac10b58cc4372a5670e02b2c3d479",
-  "phase": "analysis",
-  "tool": "Bash",
-  "input": "kubectl get pods -n openshift-monitoring"
-}
-```
-
-```json
-{
-  "timestamp": "2026-06-11T14:30:03.000Z",
-  "level": "info",
-  "event": "audit.agent.tool.result",
-  "trace_id": "f47ac10b58cc4372a5670e02b2c3d479",
-  "phase": "analysis",
-  "tool": "Bash",
-  "output": "NAME                    READY   STATUS             RESTARTS\nnginx-7d4b8c6f-x2k9p   0/1     CrashLoopBackOff   5",
-  "success": true,
-  "duration_ms": 820
-}
-```
-
-```json
-{
-  "timestamp": "2026-06-11T14:30:10.000Z",
-  "level": "info",
-  "event": "audit.agent.completed",
-  "trace_id": "f47ac10b58cc4372a5670e02b2c3d479",
-  "phase": "analysis",
-  "success": true,
-  "total_tokens_in": 12600,
-  "total_tokens_out": 2400,
-  "total_cost": 0.068
-}
-```
-
-### OLS Service Event
-
-```json
-{
-  "timestamp": "2026-06-11T14:30:00.000Z",
-  "level": "info",
-  "event": "audit.llm.turn",
-  "trace_id": "d4e5f6a7b8c90d1e2f3a4b5c6d7e8f9a",
-  "user_id": "admin@corp",
-  "turn_index": 1,
-  "tokens_in": 4200,
-  "tokens_out": 850,
-  "cost": 0.023
-}
-```
+- The stdout exporter does NOT truncate span attributes or event attributes. Full fidelity is preserved.
+- Each span is serialized as a single JSON line to stdout when the span ends.
+- The OTLP exporter may truncate based on backend limits, but the stdout signal is the compliance record.
+- Both Go and Python OTel SDKs ship stdout/console exporters natively: Go `go.opentelemetry.io/otel/exporters/stdout/stdouttrace`, Python `opentelemetry.sdk.trace.export.ConsoleSpanExporter`.
 
 ### Conventions
 
-- All components use the same top-level fields: `timestamp`, `level`, `event`.
-- `event` is the type discriminator — consumers filter on this (e.g. `event =~ "audit.agenticrun.*"` for compliance, `event =~ "audit.agent.*"` for forensics).
-- `trace_id` on every event across all components.
-- OLS events additionally carry `user_id`.
-- Payloads vary by event type; the event catalogs define what each carries.
-- Output format is mandated; logging library choice is left to each repo (Go: logr+zap already produces structured JSON; Python: repo discretion).
+- Output format is OTLP JSON — the OTel standard wire format.
+- `proposal.uid` (agentic) or `gen_ai.conversation.id` (OLS) on every span for cross-trace correlation.
+- OLS spans additionally carry `user_id`.
+- Span attributes use `gen_ai.*` naming per OTel GenAI semantic conventions.
+- CR serialization payloads are span event attributes (not span attributes) to keep spans queryable while preserving full payloads.
+
+## OTel GenAI Attribute Reference
+
+Standard attributes adopted from OTel GenAI Semantic Conventions v1.41. All `gen_ai.*` attributes follow the semconv requirement levels.
+
+### Inference Span Attributes (on `chat {model}` spans)
+
+| Attribute | Requirement | Description |
+|---|---|---|
+| `gen_ai.operation.name` | Required | `"chat"` |
+| `gen_ai.request.model` | Required | Model name requested (e.g., `claude-sonnet-4-20250514`) |
+| `gen_ai.response.model` | Recommended | Actual model from provider response |
+| `gen_ai.provider.name` | Required | Provider name (e.g., `anthropic`, `openai`, `google`) |
+| `gen_ai.usage.input_tokens` | Recommended | Input token count for this operation |
+| `gen_ai.usage.output_tokens` | Recommended | Output token count for this operation |
+| `gen_ai.response.finish_reasons` | Recommended | Reasons the model stopped generating |
+| `gen_ai.conversation.id` | Conditionally Required | Conversation identifier (OLS only) |
+| `server.address` | Recommended | LLM API endpoint hostname |
+| `server.port` | Recommended | LLM API endpoint port |
+| `error.type` | Conditionally Required | Error type when the operation fails |
+
+### Tool Execution Span Attributes (on `execute_tool {name}` spans)
+
+| Attribute | Requirement | Description |
+|---|---|---|
+| `gen_ai.operation.name` | Required | `"execute_tool"` |
+| `gen_ai.tool.name` | Required | Tool name |
+| `gen_ai.tool.call.id` | Recommended | Tool call ID from SDK/provider |
+| `gen_ai.tool.type` | Recommended | `"function"` |
+
+### MCP Attributes (on tool spans when tool is MCP-sourced, OLS only; sandbox [PLANNED])
+
+| Attribute | Requirement | Description |
+|---|---|---|
+| `mcp.method.name` | Recommended | MCP method invoked (e.g., `tools/call`) |
+| `mcp.session.id` | Recommended | MCP session identifier |
+| `mcp.protocol.version` | Recommended | MCP protocol version |
+| `network.transport` | Recommended | `stdio` or `sse` |
+
+### Operator Phase Span Attributes (on `proposal.*` spans)
+
+Operator spans are Kubernetes workflow orchestration, not GenAI inference. They use custom `proposal.*` attributes.
+
+| Attribute | Description |
+|---|---|
+| `proposal.uid` | Proposal CR `metadata.uid` (hyphens stripped) — cross-trace correlation key |
+| `proposal.name` | Proposal CR name |
+| `proposal.namespace` | Proposal CR namespace |
+| `gen_ai.request.model` | Model being sent to sandbox (where known) |
+| `gen_ai.provider.name` | Provider being sent to sandbox (where known) |
+| `retry_index` | Retry count (on execution/verification retries) |
+| `phase` | Terminal phase (on terminal span) |
+| `reason` | Terminal reason (on terminal span) |
+| `approver.uid` | Approver identity (on approval span) |
+| `approver.username` | Approver username (on approval span) |
+
+### Metrics
+
+| Metric | Type | Unit | Labels | Component |
+|---|---|---|---|---|
+| `gen_ai.client.token.usage` | Histogram | `{token}` | `gen_ai.token.type` (input/output), `gen_ai.request.model`, `gen_ai.provider.name` | Sandbox, OLS |
+| `gen_ai.client.operation.duration` | Histogram | `s` | `gen_ai.request.model`, `gen_ai.provider.name`, `gen_ai.operation.name` | Sandbox, OLS |
+| `gen_ai.execute_tool.duration` | Histogram | `s` | `gen_ai.tool.name` | Sandbox, OLS |
+
+Token usage histogram bucket boundaries: `[1, 4, 16, 64, 256, 1024, 4096, 16384, 65536]`.
+
+OLS additionally keeps its existing `ols_*` Prometheus metrics for backward compatibility. The `gen_ai.*` histograms supersede `ols_llm_token_sent_total`/`ols_llm_token_received_total` for distribution analysis.
+
+[PLANNED] Streaming metrics (`gen_ai.client.operation.time_to_first_chunk`, `gen_ai.client.operation.time_per_output_chunk`) for OLS when streaming is the default path.
+
+[PLANNED] MCP metrics (`mcp.client.operation.duration`, `mcp.client.session.duration`) pending sufficient usage data.
 
 ## Repo Ownership
 
 | Repo | Audit Responsibilities |
 |---|---|
-| **lightspeed-agentic-operator** | Emit `audit.agenticrun.*` events at phase transitions with CR serialization. Host mutating admission webhook for AgenticRunApproval PATCH (inject identity, emit `audit.approval.received`). Create OTEL root span (`agenticrun.lifecycle`) using `metadata.uid` as trace ID. Propagate trace context to sandbox via `traceparent` header. Read audit config from `AgenticOLSConfig` CR. CRD change: add `spec.approver` to AgenticRunApproval. |
-| **lightspeed-agentic-sandbox** | Emit `audit.agent.*` events from SDK event stream (text, thinking, tool calls, tool results, started, completed). Receive trace context from operator via `traceparent` header. Use `trace_id` on all events. |
-| **lightspeed-service** | Emit `audit.request.*`, `audit.llm.*`, `audit.rag.*`, `audit.history.*`, `audit.tool.*` events. Ensure `conversation_id` and `user_id` on every event. Create OTEL root span using `conversation_id` as trace ID. Read audit config from `olsconfig.yaml`. |
+| **lightspeed-agentic-operator** | Create per-phase root spans (`proposal.analyze`, `proposal.execute`, etc.) with `proposal.uid` as span attribute and Span Links to prior phases. Emit CR serialization as span events. Host mutating admission webhook for AgenticRunApproval PATCH (inject identity). Propagate trace context to sandbox via `traceparent` header. Configure stdout and OTLP exporters from `AgenticOLSConfig` CR. CRD change: add `spec.approver` to AgenticRunApproval. |
+| **lightspeed-agentic-sandbox** | Create `chat {model}` inference spans and `execute_tool {name}` tool spans with `gen_ai.*` attributes. Emit text/thinking as span events on the inference span. Receive trace context from operator via `traceparent` header. Configure stdout and OTLP exporters. Expose `gen_ai.*` Prometheus metrics via `/metrics` endpoint. |
+| **lightspeed-service** | Create per-request traces with `request.lifecycle` root span. Create `chat {model}` spans for LLM turns and `execute_tool {name}` spans for tools (with MCP attributes when MCP-sourced). Carry `gen_ai.conversation.id` and `user_id` on all spans. Configure stdout and OTLP exporters from `olsconfig.yaml`. Expose `gen_ai.*` Prometheus metrics alongside existing `ols_*` metrics. |
 | **lightspeed-operator** | CRD change: add `spec.audit` to `OLSConfig`. Propagate audit config to `olsconfig.yaml` for lightspeed-service. |
 | **lightspeed-agentic-console** | Populate approval decision fields on AgenticRunApproval PATCH (selected option, max retries, stage). Display `spec.approver` fields in UI. No audit emission responsibility. |
 | **lightspeed-console** | No changes. No audit emission responsibility. |
 
 ## Child Spec Updates Required
 
-Each child repo needs an audit logging spec with implementation details. The parent spec (this file) is authoritative for the "what" (requirements, event semantics, correlation contract). Child specs are authoritative for the "how" (implementation within that repo).
+Each child repo needs an audit logging spec with implementation details. The parent spec (this file) is authoritative for the "what" (requirements, event semantics, correlation contract, OTel GenAI attribute reference). Child specs are authoritative for the "how" (implementation within that repo).
 
 | Repo | Child Spec File | Content |
 |---|---|---|
-| lightspeed-agentic-operator | `what/audit-logging.md` | Operator audit event implementation, webhook implementation, OTEL span creation, CR serialization logic, CRD changes |
-| lightspeed-agentic-sandbox | `what/audit-logging.md` | SDK event stream instrumentation per provider (Claude, OpenAI, Gemini), trace context reception, audit event emission |
-| lightspeed-service | `what/audit-logging.md` | Request lifecycle instrumentation, conversation_id/user_id propagation, OTEL setup, audit config consumption |
+| lightspeed-agentic-operator | `what/audit-logging.md` | Per-phase trace creation, span links, CR serialization as span events, webhook implementation, CRD changes |
+| lightspeed-agentic-sandbox | `what/audit-logging.md` | GenAI span creation per provider (Claude, OpenAI, Gemini), trace context reception, single-emission rule, `gen_ai.*` metrics |
+| lightspeed-service | `what/audit-logging.md` | Per-request trace creation, `gen_ai.conversation.id` propagation, MCP attributes on tool spans, single-emission rule, `gen_ai.*` metrics |
 | lightspeed-operator | `what/audit-logging.md` | OLSConfig CRD audit fields, olsconfig.yaml generation for audit config |
 
 ## Cross-References
@@ -358,11 +369,17 @@ Each child repo needs an audit logging spec with implementation details. The par
 - `agentic-runs.md` — AgenticRun lifecycle, CRD definitions, phase transitions
 - `agentic-security.md` — Approval authorization (cluster-admin gate), per-run SA isolation
 - `query-pipeline.md` — OLS request processing stages, streaming events
+- [OTel GenAI Semantic Conventions](https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/README.md)
+- [OTel MCP Semantic Conventions](https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/mcp.md)
 
 ## Planned Changes
 
 | Ticket | Summary |
 |---|---|
-| [PLANNED] | Auto-detection of OpenShift logging OTLP endpoint |
+| [DEFERRED] | Auto-detection of OpenShift logging OTLP endpoint |
 | OLS-3295 | Rename `Proposal` → `AgenticRun`, `ProposalApproval` → `AgenticRunApproval` across audit events and OTEL spans |
 | OLS-3328 | Temporary audit log storage in PostgreSQL via custom OTel Collector (see `templog.md`) |
+| OLS-3493 | OTel GenAI semantic conventions alignment (this spec update) |
+| [DEFERRED: needs Jira] | Content capture controls — three-mode opt-in per OTel GenAI semconv |
+| [DEFERRED: needs Jira] | Evaluation events — `gen_ai.evaluation.result` for RAG relevance scoring |
+| [DEFERRED: needs Jira] | Cache token attributes — `gen_ai.usage.cache_read.input_tokens` for prompt caching |
