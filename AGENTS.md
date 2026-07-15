@@ -41,7 +41,7 @@ After brainstorming writes and commits a spec change, **auto-push and open a PR*
 
 **Steps** (run automatically after the spec commit, no user prompt needed):
 
-1. Verify every changed file (vs `main`) matches the spec-only pattern. If any file falls outside, skip and tell the user a PR with mixed content needs manual handling.
+1. Verify every changed file (vs `origin/main`) matches the spec-only pattern. If any file falls outside, skip and tell the user a PR with mixed content needs manual handling.
 2. **Pre-push spec review** — review the full diff for:
    - Internal contradictions between sections or spec files
    - Inconsistencies with existing specs (cross-reference `.ai/spec/` files touched vs untouched)
@@ -50,8 +50,8 @@ After brainstorming writes and commits a spec change, **auto-push and open a PR*
    - Formatting or structural issues
    - Scope creep beyond what was discussed in brainstorming
    - If issues are found: fix them, amend the commit, and re-review
-3. Detect the fork remote: find the remote whose URL is not `openshift/ols` (e.g. `git remote -v | grep push | grep -v openshift/ols | head -1`). Extract `<fork-remote>` name and `<fork-user>` from its URL. If no fork remote is found, stop and tell the user.
-4. Create a branch: `spec/<OLS-XXXX>-<topic>`
+3. Detect the fork remote: get the authenticated GitHub username (`gh api user -q .login`), then find the remote whose push URL contains that username (e.g. `git remote -v | grep push | grep <username>`). Extract `<fork-remote>` name and `<fork-user>` from its URL. If no matching remote is found, stop and tell the user.
+4. Create a branch: `spec/<OLS-XXXX>-<topic>` (use `OLS-0000` when there is no Jira ticket)
 5. Push: `git push <fork-remote> spec/<branch>`
 6. Open the PR with the `spec-only` label:
    ```
