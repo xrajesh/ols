@@ -247,28 +247,31 @@ any item in New status.
 If the starting context was a Feature Request (saved in
 Step 3c), create bi-directional issue links:
 
-For each newly created Epic and Story, call:
+For each newly created Epic, call:
 
 ```
 createIssueLink:
   cloudId: {cloudId}
   inwardIssue: "{FEATURE_REQUEST_KEY}"
-  outwardIssue: "{newly created key}"
-  type: "relates"
+  outwardIssue: "{newly created epic key}"
+  type: "causes"
 ```
 
 This creates the link in both directions:
-- Feature Request shows: "relates to Epic/Story OLS-XXXX"
-- Epic/Story shows: "relates to Feature Request OLS-YYYY"
+- Feature Request shows: "causes Epic OLS-XXXX"
+- Epic shows: "is caused by Feature Request OLS-YYYY"
 
-After linking, update the Feature Request description to
-add an "Implemented By" section. Fetch the current
-description first, then append:
+Do NOT link Stories directly to the Feature Request—only link the Epic.
+The Epic's parent/child relationship with Stories provides the full hierarchy.
+
+After linking all Epics, update the Feature Request description to
+add a "Causes" section. Fetch the current description first,
+then append:
 
 ```markdown
-## Implemented By
+## Causes
 
-This Feature Request is implemented by the following work items:
+This Feature Request causes the following Epics and their implementation:
 
 - [OLS-1234](https://redhat.atlassian.net/browse/OLS-1234) — {Epic summary}
   - [OLS-1235](https://redhat.atlassian.net/browse/OLS-1235) — {Story summary}
@@ -282,12 +285,12 @@ editJiraIssue:
   cloudId: {cloudId}
   issueIdOrKey: "{FEATURE_REQUEST_KEY}"
   fields:
-    description: "{updated markdown with Implemented By section}"
+    description: "{updated markdown with Causes section}"
   contentFormat: "markdown"
 ```
 
 Preserve all existing content in the Feature Request
-description — only append the new "Implemented By" section.
+description — only append the new "Causes" section.
 
 ### Updating items
 
@@ -440,7 +443,7 @@ Print a summary table of everything created and updated:
 
 Epics sized: OLS-2001 → S (15 SP)
 
-Feature Request updated: OLS-5000 now contains "Implemented By" section with links to all created Epics/Stories. Issue links created for bi-directional navigation.
+Feature Request updated: OLS-5000 now contains "Causes" section with links to all created Epics and their Stories. Issue links (causes/is caused by) created for bi-directional navigation.
 
 Spec sources:
 - lightspeed-service/.ai/spec/what/query-pipeline.md
