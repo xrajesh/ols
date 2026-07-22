@@ -76,22 +76,26 @@ Single table in a `templogs` schema:
 CREATE SCHEMA IF NOT EXISTS templogs;
 
 CREATE TABLE templogs.logs (
-    id         BIGSERIAL    PRIMARY KEY,
-    trace_id   CHAR(32)     NOT NULL,
-    timestamp  TIMESTAMPTZ  NOT NULL,
-    event      VARCHAR(128) NOT NULL,
-    body       JSONB        NOT NULL
+    id              BIGSERIAL    PRIMARY KEY,
+    agentic_run_id  TEXT         NOT NULL,
+    phase           TEXT         NOT NULL DEFAULT '',
+    timestamp       TIMESTAMPTZ  NOT NULL,
+    event           TEXT         NOT NULL,
+    body            JSONB
 );
 
-CREATE INDEX idx_logs_trace_id ON templogs.logs (trace_id);
+CREATE INDEX idx_logs_run_id    ON templogs.logs (agentic_run_id);
+CREATE INDEX idx_logs_run_phase ON templogs.logs (agentic_run_id, phase);
+CREATE INDEX idx_logs_timestamp ON templogs.logs (timestamp);
 ```
 
-- **`trace_id`** — AgenticRun `metadata.uid` with hyphens stripped (32-char hex). Primary query and cleanup key. Deterministically derived from the AgenticRun CR, not dependent on any OTEL infrastructure.
+- **`agentic_run_id`** — AgenticRun `metadata.uid` with hyphens stripped (32-char hex). Primary query and cleanup key. Deterministically derived from the AgenticRun CR, not dependent on any OTEL infrastructure.
+- **`phase`** — Audit phase name: `analysis`, `approval`, `execution`, `verification`, `escalation`, `terminal`. Matches the per-phase audit trace model. Enables console to filter logs within a run by phase.
 - **`timestamp`** — Event timestamp from the OTLP log record.
 - **`event`** — Event discriminator (`audit.agenticrun.received`, `audit.agent.tool.call`, etc.). Extracted from log record attributes for filtering without parsing JSONB.
 - **`body`** — Full structured JSON audit event as-is. Same content that goes to stdout. No transformation or field extraction beyond the dedicated columns.
 
-The `templogs` schema is created by the Postgres bootstrap script (same mechanism as `quota` and `conversation_cache` schemas).
+The `templogs` schema is created by the OTEL Collector's `postgres_admin` extension at startup (not by the Postgres bootstrap script).
 
 ## Custom OTel Collector
 
@@ -104,7 +108,8 @@ Built with the OpenTelemetry Collector Builder (ocb). The build manifest include
 
 The custom exporter:
 - Receives log records from the OTLP pipeline
-- Extracts `trace_id` (from log record trace context), `timestamp`, and `event` (from log record attributes) into dedicated columns
+- Extracts `agentic_run_id` (from `agenticrun.uid` log attribute, UUID normalized by stripping hyphens), `phase` (from `agenticrun.phase` log attribute), `timestamp`, and `event` (from `event` log attribute) into dedicated columns
+- The OTel log record's native `TraceID` field is not used for column mapping — it carries the per-phase trace ID, not the AgenticRun UID
 - Writes the full log record body as JSONB into `body`
 - Uses batch inserts for efficiency
 - Connects to Postgres using the same credentials the operator manages (shared secret, TLS via service-ca)
@@ -178,7 +183,7 @@ Ships one artifact: a container image with the custom Collector binary.
 - **Added when:** AgenticRun CR is created and `templog` is enabled (agentic-operator reads this from an env var set by the lightspeed-operator)
 - **On AgenticRun deletion:**
   1. Finalizer fires
-  2. Operator connects to Postgres: `DELETE FROM templogs.logs WHERE trace_id = $1`
+  2. Operator calls the Collector admin API: `DELETE /api/v1/logs?agentic_run_id=<uid>` (raw UUID with hyphens; collector normalizes)
   3. On success, removes the finalizer — CR deletion proceeds
   4. On failure (Postgres unreachable), finalizer blocks deletion and requeues with standard controller-runtime retry and backoff
 
@@ -235,3 +240,4 @@ Ships one artifact: a container image with the custom Collector binary.
 |---|---|
 | OLS-3295 | Rename `Proposal` → `AgenticRun` across templog finalizer, cleanup, and audit event references |
 | OLS-3328 | Implement temporary audit log storage |
+| OLS-3696 | Rename `trace_id` → `agentic_run_id`, add `phase` column, update admin API. See design spec `docs/superpowers/specs/2026-07-22-templog-phase-storage.md`. |
