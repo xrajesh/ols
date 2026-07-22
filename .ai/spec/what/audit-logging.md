@@ -380,6 +380,7 @@ Each child repo needs an audit logging spec with implementation details. The par
 | OLS-3295 | Rename `Proposal` → `AgenticRun`, `ProposalApproval` → `AgenticRunApproval` across audit events and OTEL spans |
 | OLS-3328 | Temporary audit log storage in PostgreSQL via custom OTel Collector (see `templog.md`) |
 | OLS-3493 | OTel GenAI semantic conventions alignment (this spec update) |
+| OLS-3696 | Templog phase storage — OTLP log records must carry `agenticrun.phase` attribute. Collector maps it to `phase` column. `trace_id` column renamed to `agentic_run_id`. See design spec `docs/superpowers/specs/2026-07-22-templog-phase-storage.md`. |
 | [DEFERRED: needs Jira] | Content capture controls — three-mode opt-in per OTel GenAI semconv |
 | [DEFERRED: needs Jira] | Evaluation events — `gen_ai.evaluation.result` for RAG relevance scoring |
 | [DEFERRED: needs Jira] | Cache token attributes — `gen_ai.usage.cache_read.input_tokens` for prompt caching |
