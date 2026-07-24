@@ -78,7 +78,7 @@ Lookup table: concern → repo(s) → spec file(s). Use this to find where to go
 | Concern | Repo | Spec Files |
 |---|---|---|
 | AgenticRun list/detail UI | lightspeed-agentic-console | `what/run-lifecycle.md` |
-| Dynamic configuration components | lightspeed-agentic-console | `what/dynamic-components.md` |
+| Dynamic configuration components | lightspeed-agentic-console | `what/dynamic-components.md` [PLANNED -- file does not yet exist] |
 | Configuration UI (approval policies, providers, agents) | lightspeed-agentic-console | `what/configuration.md` |
 | Console plugin system integration | lightspeed-agentic-console | `how/console-plugin-system.md` |
 | K8s data fetching layer | lightspeed-agentic-console | `how/k8s-data-layer.md` |
@@ -103,6 +103,8 @@ Lookup table: concern → repo(s) → spec file(s). Use this to find where to go
 
 ## Multicluster OLS — Hub
 
+_Note: these repositories are not yet cloned in this workspace. References below are aspirational._
+
 | Concern | Repo | Spec Files |
 |---|---|---|
 | Hub operator system overview | lightspeed-hub | `what/system-overview.md` |
@@ -114,6 +116,8 @@ Lookup table: concern → repo(s) → spec file(s). Use this to find where to go
 | Hub-initiated proposals | lightspeed-hub | `what/fleet-coordination.md` |
 
 ## Multicluster OLS — Hub UI
+
+_Note: these repositories are not yet cloned in this workspace. References below are aspirational._
 
 | Concern | Repo | Spec Files |
 |---|---|---|

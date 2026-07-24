@@ -28,7 +28,7 @@ The hub layer for fleet-scale operations. A central hub cluster manages spoke cl
 
 9. **lightspeed-hub** (Go/kubebuilder) — Hub operator. Manages `SpokeCluster` CRs, coordinates fleet-wide agentic operations, automates spoke onboarding (adapter deployment, credential configuration, health monitoring). Guide: `lightspeed-hub/AGENTS.md`
 10. **lightspeed-hub-ui** (TypeScript/React) — Console plugin for the hub. Multicluster dashboard for viewing spoke health, fleet-wide proposals, and spoke management. Guide: `lightspeed-hub-ui/AGENTS.md`
-11. **lightspeed-otel-collector** (Go) — Custom OpenTelemetry collector. Collects and forwards observability data (metrics, traces, logs) across the OLS fleet. Guide: `lightspeed-otel-collector/AGENTS.md`
+11. **lightspeed-otel-collector** (Go) — Custom OpenTelemetry collector. Collects and forwards observability data (metrics, traces, logs) across the OLS fleet. Spec: `lightspeed-otel-collector/.ai/spec/README.md`
 
 ### Tooling
 
@@ -46,6 +46,8 @@ These features span multiple repos and have dedicated spec files describing the 
 | Deployment lifecycle | `what/deployment-lifecycle.md` | operator, service, console |
 | Query pipeline | `what/query-pipeline.md` | console, service, operator, rag-content |
 | Compliance audit logging | `what/audit-logging.md` | agentic-operator, agentic-sandbox, service, operator, agentic-console |
+| Temporary audit log storage | `what/templog.md` | otel-collector, operator, agentic-operator, agentic-sandbox |
+| Agentic security model | `what/agentic-security.md` | agentic-operator, agentic-console |
 
 ## Planned Changes
 

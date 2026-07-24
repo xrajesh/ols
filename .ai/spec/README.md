@@ -13,7 +13,7 @@ Each child repo has its own `.ai/spec/` (or `AGENTS.md`) with repo-specific beha
 
 ## Scope
 
-Covers the full OLS product across all 13 repositories in this workspace. Out of scope: internal repo implementation details (covered by each repo's own `.ai/spec/`).
+Covers the full OLS product across 11 repositories currently cloned in this workspace (lightspeed-hub and lightspeed-hub-ui are not yet available). Out of scope: internal repo implementation details (covered by each repo's own `.ai/spec/`).
 
 ## Audience
 
@@ -31,6 +31,7 @@ AI agents. Content is optimized for precision and machine consumption.
 | Understand how a user query is processed | `what/query-pipeline.md` |
 | Understand the agentic security model | `what/agentic-security.md` |
 | Understand the compliance audit logging system | `what/audit-logging.md` |
+| Understand the temporary audit log pipeline | `what/templog.md` |
 | Check cross-repo rules | `constraints.md` |
 
 ## Conventions

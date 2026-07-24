@@ -38,9 +38,9 @@ Two confirmed vulnerabilities in the current implementation motivate this spec:
 
 11. **SA lifecycle — creation.** The per-run SA MUST be created before execution RBAC materialization, in the same reconcile pass as `ensureExecutionRBAC`. If creation fails, the step MUST fail with an error surfaced to run conditions.
 
-12. **SA lifecycle — owner reference.** The per-run SA MUST carry an owner reference to the AgenticRun CR (`Controller: true`, `BlockOwnerDeletion: true`) so it is garbage-collected when the AgenticRun is deleted.
+12. **SA lifecycle — owner reference.** The per-run SA MUST NOT carry an owner reference — cross-namespace owner references are not honored by the Kubernetes garbage collector. Cleanup is instead handled by the operator's run reconciler when the run reaches a terminal phase.
 
-13. **SA lifecycle — cleanup.** On terminal phases (Completed, Denied, Escalated) or AgenticRun deletion, the operator MUST delete the per-run SA alongside the existing RBAC cleanup. This is defense-in-depth — the owner reference handles GC, but explicit cleanup ensures prompt removal of credentials.
+13. **SA lifecycle — cleanup.** On terminal phases (Completed, Failed, Denied, Escalated, EmergencyStopped, NoActionRequired) or AgenticRun deletion, the operator MUST delete the per-run SA alongside the existing RBAC cleanup. This is defense-in-depth — explicit cleanup ensures prompt removal of credentials.
 
 14. **Verification SA.** Verification steps use the shared `lightspeed-agent` SA (same as analysis), not the per-run execution SA. Verification is a read-only check — it confirms whether the execution's changes took effect but MUST NOT have write access. Escalation steps also use the shared `lightspeed-agent` SA since escalation generates a human-readable summary and does not modify cluster state.
 

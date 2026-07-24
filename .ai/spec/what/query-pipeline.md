@@ -72,7 +72,7 @@ End-to-end flow for processing a user question: from console submission through 
 ### Response Rendering (lightspeed-console)
 
 34. The console renders streamed tokens as they arrive, displays referenced documents, and visualizes tool call results. Reasoning events are already rendered by the console — no changes needed.
-35. The conversation is added to the user's history sidebar.
+35. The console displays the response in the current session. (No persistent history sidebar -- each session is independent.)
 
 ## Integration Contracts
 
@@ -103,6 +103,8 @@ End-to-end flow for processing a user question: from console submission through 
 | `history_compression_start/end` | — | History being compressed |
 | `end` | referenced_documents, token counts | Stream complete |
 | `error` | status_code, response, cause | Error occurred |
+
+Note: The console currently consumes `reasoning` and `skill_selected` events but does not render them in the UI.
 
 ### Request Format
 
@@ -143,7 +145,7 @@ LLMRequest:
 | OLS-2825 | Consolidate context window token budget into single module |
 | OLS-2840 | Refactor DocsSummarizer: extract ToolCallingAgent class |
 | OLS-2898 | Raise `max_iterations` to 50 |
-| OLS-2521 | Support Google Gemini as direct LLM provider |
-| OLS-2776 | Support Anthropic as direct LLM provider |
+| ~~OLS-2521~~ | ~~Support Google Gemini as direct LLM provider~~ [DONE] |
+| ~~OLS-2776~~ | ~~Support Anthropic as direct LLM provider~~ [DONE] |
 | OLS-1660 | Llama Stack integration |
 | OLS-3442 | Reasoning token support: per-model `reasoningConfig` for all providers, streaming accumulation fix, vLLM `ChatVLLMReasoning` subclass |

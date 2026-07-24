@@ -18,7 +18,7 @@ Multi-phase AI workflows that diagnose and remediate cluster issues. An alert fi
 7. If approval is required, the operator waits for an `AgenticRunApproval` CR granting analysis. If automatic, it proceeds immediately.
 8. The operator provisions a sandbox pod (bare-pod or sandbox-claim mode) using a derived `SandboxTemplate`.
 9. The operator calls `POST /v1/agent/run` on the sandbox with the analysis request, output schema for remediation options, and context (target namespaces).
-10. The sandbox executes the request using the configured LLM provider (Claude, Gemini, or OpenAI) and returns structured remediation options. Each option contains a concrete remediation script (ordered bash commands using kubectl/oc) and RBAC requirements derived from those commands. The analysis prompt instructs the agent to inspect cluster state with kubectl/oc before diagnosing, and to derive RBAC by tracing every command in its script.
+10. The sandbox executes the request using the configured LLM provider (Anthropic, Gemini, or OpenAI) and returns structured remediation options. Each option contains a concrete remediation script (ordered bash commands using kubectl/oc) and RBAC requirements derived from those commands. The analysis prompt instructs the agent to inspect cluster state with kubectl/oc before diagnosing, and to derive RBAC by tracing every command in its script.
 11. The operator stores the result in an immutable `AnalysisResult` CR owned by the AgenticRun.
 12. The analysis output includes an `actionRequired` boolean and a top-level `Diagnosis` (summary, confidence, rootCause). When `actionRequired` is false, the `Options` array may be empty (`minItems: 0`); the top-level `Diagnosis` captures the agent's explanation of why no remediation is needed.
 13. When the operator stores an `AnalysisResult` with `actionRequired=false`, it sets the `Analyzed` condition to `True` with reason `NoActionRequired`. The AgenticRun auto-transitions to the `NoActionRequired` terminal phase, bypassing Proposed/Approval/Execution/Verification entirely.
@@ -95,7 +95,7 @@ Context envelope varies by phase:
 |---|---|
 | **lightspeed-agentic-alerts-adapter** | Alert polling, fingerprint-based dedup, cooldown enforcement, AgenticRun CR creation (create-only) |
 | **lightspeed-agentic-operator** | AgenticRun reconciliation, approval gate enforcement, sandbox provisioning, RBAC materialization, agent HTTP calls, result CR creation, phase derivation, finalizer cleanup |
-| **lightspeed-agentic-sandbox** | `/v1/agent/run` endpoint, LLM provider abstraction (Claude/Gemini/OpenAI adapters), structured output handling, tool execution, event logging |
+| **lightspeed-agentic-sandbox** | `/v1/agent/run` endpoint, LLM provider abstraction (DeepAgents/Anthropic, Gemini, OpenAI adapters), structured output handling, tool execution, event logging |
 | **lightspeed-agentic-console** | AgenticRun list/detail UI, phase display (mirrors operator's phase derivation), approval decision UI, option selection, revision feedback, escalation display |
 
 ## Planned Changes
@@ -107,6 +107,6 @@ Context envelope varies by phase:
 | OLS-2957 | Sandbox template management UX and CRD ergonomics |
 | OLS-3038 | TLS verification and network policy for agent traffic |
 | OLS-3033 | Operator-passed `allowedTools` and `llm` aligned with `ProviderQueryOptions` |
-| OLS-3268 | Analysis can signal `actionRequired=false` to auto-complete with `NoActionRequired` phase |
-| OLS-3295 | Rename `Proposal` → `AgenticRun`, `ProposalApproval` → `AgenticRunApproval`, `ProposalResult` → `RemediationPlan` across CRDs, API, CLI, console, and docs |
+| ~~OLS-3268~~ | ~~Analysis can signal `actionRequired=false` to auto-complete with `NoActionRequired` phase~~ [DONE: OLS-3268] |
+| ~~OLS-3295~~ | ~~Rename `Proposal` → `AgenticRun`, `ProposalApproval` → `AgenticRunApproval`, `ProposalResult` → `RemediationPlan` across CRDs, API, CLI, console, and docs~~ [DONE: OLS-3295] |
 | OLS-3441 | Script-grounded RBAC: analysis produces concrete bash scripts and derives RBAC from commands; execution dry-runs mutations before applying |

@@ -65,7 +65,7 @@ Note: `ols_config.reference_content` is only populated when BYOK `rag[]` entries
 | `ibm-granite/granite-embedding-30m-english` | OKP query vectorization (client-side) | 384 |
 | `sentence-transformers/all-mpnet-base-v2` | BYOK FAISS queries | 768 |
 
-Both models are bundled in the service image. [PENDING] Ask OKP team if server-side embedding is supported (preferred; would eliminate granite model from service).
+Both models are bundled in the service image. [PLANNED] Ask OKP team if server-side embedding is supported (preferred; would eliminate granite model from service).
 
 ### Chunk Metadata
 

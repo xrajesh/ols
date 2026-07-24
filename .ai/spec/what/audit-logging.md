@@ -28,16 +28,16 @@ Telemetry aligns with [OTel GenAI Semantic Conventions](https://github.com/open-
 
 ### Agentic System — Per-Phase Traces
 
-Each phase of a Proposal lifecycle gets its own trace. The Proposal UID links all phase traces as a correlation attribute.
+Each phase of an AgenticRun lifecycle gets its own trace. The AgenticRun UID links all phase traces as a correlation attribute.
 
-- **`proposal.uid`** — the Proposal CR's `metadata.uid` with hyphens stripped to produce a 32-char hex string. Carried as a **span attribute** (not the trace ID) on every span in every phase trace. This is the cross-trace correlation key. Users query `proposal.uid = X` to see all phase traces for a Proposal.
-- **`proposal.name`** and **`proposal.namespace`** — also carried as span attributes on every span for convenience.
+- **`agentic_run.uid`** — the AgenticRun CR's `metadata.uid` with hyphens stripped to produce a 32-char hex string. Carried as a **span attribute** (not the trace ID) on every span in every phase trace. This is the cross-trace correlation key. Users query `agentic_run.uid = X` to see all phase traces for an AgenticRun.
+- **`agentic_run.name`** and **`agentic_run.namespace`** — also carried as span attributes on every span for convenience.
 - **Per-phase trace IDs** — each phase (analysis, execution, verification, escalation) gets a fresh, auto-generated OTEL trace ID. The operator creates the root span for each phase and propagates trace context to the sandbox via W3C `traceparent` header on `/v1/agent/run` calls.
 - **Span Links** — each phase trace's root span includes an OTel Span Link back to the prior phase's root span, giving trace UIs a "click to see previous phase" affordance.
 - **Human approval** — recorded as a standalone short-lived trace (just the approval event, not the wait time). Wait duration is derived from timestamps between the analysis-completed and approval-received traces.
 - **On retry** (verification failure → re-execute) — new traces are created for the retry execution and verification phases. Retry index is a span attribute.
 
-Note: agentic events do not carry a `user_id` — AgenticRuns are created by the alerts-adapter (a service account), not a human. The human identity enters the audit trail at approval time via the mutating webhook (`proposal.approval.completed` span event).
+Note: agentic events do not carry a `user_id` — AgenticRuns are created by the alerts-adapter (a service account), not a human. The human identity enters the audit trail at approval time via the mutating webhook (`agentic_run.approval.completed` span event).
 
 ### OLS (lightspeed-service) — Per-Request Traces
 
@@ -52,7 +52,7 @@ Each HTTP request gets its own trace. The conversation ID links all request trac
 Operator CR payloads (AnalysisResult, ExecutionResult, etc.) use a split model:
 
 - **Key fields → span attributes** (queryable in trace backends): `result.name`, `result.uid`, `options.count`, `phase`, `terminal.reason`.
-- **Full CR serialization → span event attributes** (viewable, full fidelity): complete `.spec` + `.status` + select metadata as a single event attribute. Event names follow the audit event catalog (e.g., `proposal.analysis.completed`).
+- **Full CR serialization → span event attributes** (viewable, full fidelity): complete `.spec` + `.status` + select metadata as a single event attribute. Event names follow the audit event catalog (e.g., `agentic_run.analysis.completed`).
 
 All serialized CRs include: `metadata.name`, `metadata.namespace`, `metadata.creationTimestamp`, `metadata.uid`, plus `.spec` and `.status` (for Result CRs).
 
@@ -60,18 +60,18 @@ All serialized CRs include: `metadata.name`, `metadata.namespace`, `metadata.cre
 
 ### Operator Events
 
-Emitted as OTel span events attached to the operator's phase spans. Each carries `proposal.uid`, `proposal.name`, and `proposal.namespace` as span attributes on the parent span.
+Emitted as OTel span events attached to the operator's phase spans. Each carries `agentic_run.uid`, `agentic_run.name`, and `agentic_run.namespace` as span attributes on the parent span.
 
 | Span Event | When | Attributes |
 |---|---|---|
-| `proposal.received` | New Proposal CR detected | Full Proposal CR serialization |
-| `proposal.analysis.completed` | AnalysisResult CR created | `result.name`, `result.uid`, `options.count` + full AnalysisResult CR serialization |
-| `proposal.approval.completed` | ProposalApproval PATCH observed | `approver.uid`, `approver.username`, selected option, full text of selected option |
-| `proposal.execution.completed` | ExecutionResult CR created | `result.name`, `result.uid`, `actions_taken.count` + full ExecutionResult CR serialization |
-| `proposal.verification.completed` | VerificationResult CR created, checks passed | `result.name`, `result.uid`, `checks.count` + full VerificationResult CR serialization |
-| `proposal.verification.retry` | Verification failed, retrying | `result.name`, `retry_count`, `checks.count` + full VerificationResult CR serialization |
-| `proposal.escalation.completed` | EscalationResult CR created | Full EscalationResult CR serialization |
-| `proposal.terminal` | Proposal reaches terminal phase | `phase`, `reason` |
+| `agentic_run.received` | New AgenticRun CR detected | Full AgenticRun CR serialization |
+| `agentic_run.analysis.completed` | AnalysisResult CR created | `result.name`, `result.uid`, `options.count` + full AnalysisResult CR serialization |
+| `agentic_run.approval.completed` | AgenticRunApproval PATCH observed | `approver.uid`, `approver.username`, selected option, full text of selected option |
+| `agentic_run.execution.completed` | ExecutionResult CR created | `result.name`, `result.uid`, `actions_taken.count` + full ExecutionResult CR serialization |
+| `agentic_run.verification.completed` | VerificationResult CR created, checks passed | `result.name`, `result.uid`, `checks.count` + full VerificationResult CR serialization |
+| `agentic_run.verification.retry` | Verification failed, retrying | `result.name`, `retry_count`, `checks.count` + full VerificationResult CR serialization |
+| `agentic_run.escalation.completed` | EscalationResult CR created | Full EscalationResult CR serialization |
+| `agentic_run.terminal` | AgenticRun reaches terminal phase | `phase`, `reason` |
 
 ### Sandbox Events
 
@@ -81,7 +81,7 @@ Emitted as OTel spans and span events during agent execution. The sandbox receiv
 
 | Span Name | Kind | When | Key Attributes |
 |---|---|---|---|
-| `chat {gen_ai.request.model}` | `CLIENT` | Full SDK inference call | `gen_ai.operation.name`, `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.provider.name`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `proposal.uid` |
+| `chat {gen_ai.request.model}` | `CLIENT` | Full SDK inference call | `gen_ai.operation.name`, `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.provider.name`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `agentic_run.uid` |
 | `execute_tool {gen_ai.tool.name}` | `INTERNAL` | Each tool call/result pair | `gen_ai.operation.name`, `gen_ai.tool.name`, `gen_ai.tool.call.id`, `gen_ai.tool.type` |
 
 **Span events** (point-in-time, attached to the inference span):
@@ -120,11 +120,11 @@ Note: OLS runs its own tool-calling loop (not an SDK agentic loop), so per-turn 
 
 ### Agentic System — Per-Phase Traces
 
-Each phase is its own trace. Traces are linked by `proposal.uid` span attribute and OTel Span Links.
+Each phase is its own trace. Traces are linked by `agentic_run.uid` span attribute and OTel Span Links.
 
 **Analysis phase trace:**
 ```
-proposal.analyze                [operator, root, INTERNAL, proposal.uid=<UID>]
+agentic_run.analyze             [operator, root, INTERNAL, agentic_run.uid=<UID>]
 └── chat claude-sonnet-4-...    [sandbox, CLIENT, via traceparent]
     ├── execute_tool Bash       [sandbox, INTERNAL]
     ├── execute_tool Bash       [sandbox, INTERNAL]
@@ -133,13 +133,13 @@ proposal.analyze                [operator, root, INTERNAL, proposal.uid=<UID>]
 
 **Approval trace:**
 ```
-proposal.human_approval         [operator, root, INTERNAL, proposal.uid=<UID>, linked→analysis trace]
-└── (span event: proposal.approval.completed with approver identity)
+agentic_run.human_approval      [operator, root, INTERNAL, agentic_run.uid=<UID>, linked→analysis trace]
+└── (span event: agentic_run.approval.completed with approver identity)
 ```
 
 **Execution phase trace:**
 ```
-proposal.execute                [operator, root, INTERNAL, proposal.uid=<UID>, linked→approval trace]
+agentic_run.execute             [operator, root, INTERNAL, agentic_run.uid=<UID>, linked→approval trace]
 └── chat claude-sonnet-4-...    [sandbox, CLIENT, via traceparent]
     ├── execute_tool Bash       [sandbox, INTERNAL]
     └── (span events: gen_ai.content.completion)
@@ -147,15 +147,15 @@ proposal.execute                [operator, root, INTERNAL, proposal.uid=<UID>, l
 
 **Verification phase trace:**
 ```
-proposal.verify                 [operator, root, INTERNAL, proposal.uid=<UID>, linked→execution trace]
+agentic_run.verify              [operator, root, INTERNAL, agentic_run.uid=<UID>, linked→execution trace]
 └── chat claude-sonnet-4-...    [sandbox, CLIENT, via traceparent]
     └── execute_tool Bash       [sandbox, INTERNAL]
 ```
 
 **Terminal trace:**
 ```
-proposal.terminal               [operator, root, INTERNAL, proposal.uid=<UID>, linked→verify trace]
-└── (span event: proposal.terminal with phase and reason)
+agentic_run.terminal            [operator, root, INTERNAL, agentic_run.uid=<UID>, linked→verify trace]
+└── (span event: agentic_run.terminal with phase and reason)
 ```
 
 On retry (verification failure → re-execute), new execution and verification traces are created with `retry_index` as a span attribute.
@@ -181,7 +181,7 @@ For multi-turn conversations, each request produces a separate trace. All traces
 
 ### Purpose
 
-Inject authenticated user identity into AgenticRunApproval on PATCH. Serves two needs: audit logging (emit `proposal.approval.completed` span event with identity) and UI display (persist identity on the CR).
+Inject authenticated user identity into AgenticRunApproval on PATCH. Serves two needs: audit logging (emit `agentic_run.approval.completed` span event with identity) and UI display (persist identity on the CR).
 
 ### Mechanics
 
@@ -190,7 +190,7 @@ Inject authenticated user identity into AgenticRunApproval on PATCH. Serves two 
 - **Action:**
   1. Read `request.userInfo.username` and `request.userInfo.uid` from the AdmissionReview.
   2. Write `spec.approver.uid`, `spec.approver.username`, `spec.approver.timestamp` into the CR, overwriting any client-submitted values.
-  3. Emit approval span event with user identity and `proposal.uid` (Proposal's `metadata.uid`, read from the CR's owner reference).
+  3. Emit approval span event with user identity and `agentic_run.uid` (AgenticRun's `metadata.uid`, read from the CR's owner reference).
 - **Hosted by:** The agentic-operator controller-manager (same process, same OTel tracer).
 - **Failure mode:** Fail-closed — if the webhook is unavailable, the API server rejects the PATCH. Correct default for a compliance-critical path.
 - **TLS:** Webhook certificate managed by the operator's existing cert infrastructure.
@@ -246,7 +246,7 @@ If `spec.audit` is absent entirely, behavior is `enabled: true` with no-op OTLP 
 
 ### Auto-Detection
 
-Auto-detection of OpenShift logging OTLP endpoints: [DEFERRED].
+Auto-detection of OpenShift logging OTLP endpoints: [PLANNED].
 
 ## Structured Log Format — OTLP JSON
 
@@ -266,7 +266,7 @@ Each audit-significant datum is recorded exactly once, as an OTel span or span e
 ### Conventions
 
 - Output format is OTLP JSON — the OTel standard wire format.
-- `proposal.uid` (agentic) or `gen_ai.conversation.id` (OLS) on every span for cross-trace correlation.
+- `agentic_run.uid` (agentic) or `gen_ai.conversation.id` (OLS) on every span for cross-trace correlation.
 - OLS spans additionally carry `user_id`.
 - Span attributes use `gen_ai.*` naming per OTel GenAI semantic conventions.
 - CR serialization payloads are span event attributes (not span attributes) to keep spans queryable while preserving full payloads.
@@ -309,15 +309,15 @@ Standard attributes adopted from OTel GenAI Semantic Conventions v1.41. All `gen
 | `mcp.protocol.version` | Recommended | MCP protocol version |
 | `network.transport` | Recommended | `stdio` or `sse` |
 
-### Operator Phase Span Attributes (on `proposal.*` spans)
+### Operator Phase Span Attributes (on `agentic_run.*` spans)
 
-Operator spans are Kubernetes workflow orchestration, not GenAI inference. They use custom `proposal.*` attributes.
+Operator spans are Kubernetes workflow orchestration, not GenAI inference. They use custom `agentic_run.*` attributes.
 
 | Attribute | Description |
 |---|---|
-| `proposal.uid` | Proposal CR `metadata.uid` (hyphens stripped) — cross-trace correlation key |
-| `proposal.name` | Proposal CR name |
-| `proposal.namespace` | Proposal CR namespace |
+| `agentic_run.uid` | AgenticRun CR `metadata.uid` (hyphens stripped) — cross-trace correlation key |
+| `agentic_run.name` | AgenticRun CR name |
+| `agentic_run.namespace` | AgenticRun CR namespace |
 | `gen_ai.request.model` | Model being sent to sandbox (where known) |
 | `gen_ai.provider.name` | Provider being sent to sandbox (where known) |
 | `retry_index` | Retry count (on execution/verification retries) |
@@ -346,7 +346,7 @@ OLS additionally keeps its existing `ols_*` Prometheus metrics for backward comp
 
 | Repo | Audit Responsibilities |
 |---|---|
-| **lightspeed-agentic-operator** | Create per-phase root spans (`proposal.analyze`, `proposal.execute`, etc.) with `proposal.uid` as span attribute and Span Links to prior phases. Emit CR serialization as span events. Host mutating admission webhook for AgenticRunApproval PATCH (inject identity). Propagate trace context to sandbox via `traceparent` header. Configure stdout and OTLP exporters from `AgenticOLSConfig` CR. CRD change: add `spec.approver` to AgenticRunApproval. |
+| **lightspeed-agentic-operator** | Create per-phase root spans (`agentic_run.analyze`, `agentic_run.execute`, etc.) with `agentic_run.uid` as span attribute and Span Links to prior phases. Emit CR serialization as span events. Host mutating admission webhook for AgenticRunApproval PATCH (inject identity). Propagate trace context to sandbox via `traceparent` header. Configure stdout and OTLP exporters from `AgenticOLSConfig` CR. CRD change: add `spec.approver` to AgenticRunApproval. |
 | **lightspeed-agentic-sandbox** | Create `chat {model}` inference spans and `execute_tool {name}` tool spans with `gen_ai.*` attributes. Emit text/thinking as span events on the inference span. Receive trace context from operator via `traceparent` header. Configure stdout and OTLP exporters. Expose `gen_ai.*` Prometheus metrics via `/metrics` endpoint. |
 | **lightspeed-service** | Create per-request traces with `request.lifecycle` root span. Create `chat {model}` spans for LLM turns and `execute_tool {name}` spans for tools (with MCP attributes when MCP-sourced). Carry `gen_ai.conversation.id` and `user_id` on all spans. Configure stdout and OTLP exporters from `olsconfig.yaml`. Expose `gen_ai.*` Prometheus metrics alongside existing `ols_*` metrics. |
 | **lightspeed-operator** | CRD change: add `spec.audit` to `OLSConfig`. Propagate audit config to `olsconfig.yaml` for lightspeed-service. |
@@ -376,11 +376,11 @@ Each child repo needs an audit logging spec with implementation details. The par
 
 | Ticket | Summary |
 |---|---|
-| [DEFERRED] | Auto-detection of OpenShift logging OTLP endpoint |
+| [PLANNED] | Auto-detection of OpenShift logging OTLP endpoint |
 | OLS-3295 | Rename `Proposal` → `AgenticRun`, `ProposalApproval` → `AgenticRunApproval` across audit events and OTEL spans |
 | OLS-3328 | Temporary audit log storage in PostgreSQL via custom OTel Collector (see `templog.md`) |
 | OLS-3493 | OTel GenAI semantic conventions alignment (this spec update) |
 | OLS-3696 | Templog phase storage — OTLP log records must carry `agenticrun.phase` attribute. Collector maps it to `phase` column. `trace_id` column renamed to `agentic_run_id`. See design spec `docs/superpowers/specs/2026-07-22-templog-phase-storage.md`. |
-| [DEFERRED: needs Jira] | Content capture controls — three-mode opt-in per OTel GenAI semconv |
-| [DEFERRED: needs Jira] | Evaluation events — `gen_ai.evaluation.result` for RAG relevance scoring |
-| [DEFERRED: needs Jira] | Cache token attributes — `gen_ai.usage.cache_read.input_tokens` for prompt caching |
+| [PLANNED] | Content capture controls — three-mode opt-in per OTel GenAI semconv |
+| [PLANNED] | Evaluation events — `gen_ai.evaluation.result` for RAG relevance scoring |
+| [PLANNED] | Cache token attributes — `gen_ai.usage.cache_read.input_tokens` for prompt caching |

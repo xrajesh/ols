@@ -25,12 +25,12 @@ The Kubernetes operator that deploys and manages all OpenShift Lightspeed compon
 
 ### Phase 2 — Deployments (with health checks)
 
-9. **Console UI**: Single-replica nginx deployment. PatternFly image version selected per OCP version. ConsolePlugin CR created and activated in the Console CR.
+9. **Console UI**: Single-replica nginx deployment. The operator uses a single console image regardless of OCP minor version. ConsolePlugin CR created and activated in the Console CR.
 10. **PostgreSQL**: Single-replica database deployment. TLS certificates provisioned via the service-ca operator.
 11. **App Server**: FastAPI application deployment with:
     - RHOKP sidecar (always deployed; serves OKP content via Solr HTTP on localhost:8080; requires ~75 GiB ephemeral storage). Not deployed when `byokRAGOnly` is true.
     - Data collector sidecar (if feedback/transcripts enabled and telemetry secret exists)
-    - OpenShift MCP server sidecar (if introspection enabled)
+    - OpenShift MCP server standalone Deployment/Service (if introspection enabled)
     - BYOK RAG init containers (copy customer index content from OCI image to shared volume, when `spec.ols.rag` configured)
 11a. **Alerts Adapter**: Single-replica Go deployment. Polls AlertManager for firing alerts and creates `AgenticRun` CRs. `ALERTMANAGER_URL` env hardcoded to `https://alertmanager-main.openshift-monitoring.svc:9094`. Status condition: `AlertsAdapterReady`.
 11b. **Agentic Console**: Single-replica nginx deployment with TLS via service-ca cert. ConsolePlugin CR created and activated in the Console CR alongside the classic console plugin. Status condition: `AgenticConsolePluginReady`.
@@ -47,7 +47,7 @@ The Kubernetes operator that deploys and manages all OpenShift Lightspeed compon
 
 ### Status Reporting
 
-15. The operator reports `OverallStatus` (Ready/NotReady) and condition types: `ApiReady`, `CacheReady`, `ConsolePluginReady`, `AlertsAdapterReady` [PLANNED: OLS-3236], `AgenticConsolePluginReady` [PLANNED: OLS-3236], `ResourceReconciliation`.
+15. The operator reports `OverallStatus` (Ready/NotReady) and condition types: `ApiReady`, `CacheReady`, `ConsolePluginReady`, `AlertsAdapterReady` [PLANNED: OLS-3236], `AgenticConsolePluginReady` [PLANNED: OLS-3236], `OtelCollectorReady`, `MCPServerReady`, `ResourceReconciliation`.
 16. On pod failures, the operator includes diagnostic info: container reason, message, exit code.
 
 ### Cleanup on Deletion
@@ -82,7 +82,7 @@ When an external resource changes, the operator sets `ols.openshift.io/force-rel
 
 ### Operator Image Flags
 
-The operator accepts image overrides at startup: `--service-image`, `--console-image`, `--console-image-pf5`, `--console-image-4-19`, `--postgres-image`, `--openshift-mcp-server-image`, `--dataverse-exporter-image`, `--rhokp-image`, `--alerts-adapter-image` [PLANNED: OLS-3236], `--agentic-console-image` [PLANNED: OLS-3236].
+The operator accepts image overrides at startup: `--service-image`, `--console-image`, `--postgres-image`, `--openshift-mcp-server-image`, `--dataverse-exporter-image`, `--rhokp-image`, `--alerts-adapter-image` [PLANNED: OLS-3236], `--agentic-console-image` [PLANNED: OLS-3236].
 
 ## Repo Ownership
 
