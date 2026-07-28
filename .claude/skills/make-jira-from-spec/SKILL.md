@@ -109,7 +109,7 @@ Determine the parent for new Stories based on what the
 user provided as the starting context.
 
 **Do NOT create Epics under Feature Requests.** The skill
-only creates Stories (and updates existing Epics/Features).
+creates Epics under a Feature and Stories under an Epic.
 
 ### 3a. Starting context is an Epic
 
@@ -141,13 +141,56 @@ searchJiraIssuesUsingJql:
 
 ### 3c. Starting context is a Feature Request, or no Jira key provided
 
-Ask the user:
+Search for existing open Epics by keyword from the Feature
+Request summary. Strip JQL reserved characters (`-`, `(`,
+`)`, `[`, `]`, `"`, `'`, `+`, `&`, `|`, `!`, `{`, `}`)
+from the search terms before building the query:
 
-> What Epic should these stories live under?
-> Provide a Jira key (e.g. OLS-1234).
+```
+searchJiraIssuesUsingJql:
+  cloudId: redhat.atlassian.net
+  jql: >
+    project = OLS
+    AND issuetype = Epic
+    AND resolution = Unresolved
+    AND summary ~ "{escaped keywords}"
+  fields: ["summary", "status", "labels"]
+  maxResults: 10
+```
 
-Do NOT create Epics under Feature Requests. Do NOT
-proceed without a parent Epic confirmed by the user.
+Present the candidates to the user:
+
+```
+Found existing Epics that may match:
+
+| # | Key      | Summary                         | Status     |
+|---|----------|---------------------------------|------------|
+| 1 | OLS-2001 | {summary}                       | Refinement |
+| 2 | OLS-2005 | {summary}                       | In Progress|
+
+Options:
+  1, 2, ... — use this Epic as the parent
+  new      — create a new Epic (will be top-level, no parent)
+  key      — enter a different Epic key
+```
+
+**Wait for user confirmation.** Do NOT proceed without a
+confirmed parent Epic.
+
+When the user chooses "new", the Epic is created as a
+top-level item (no parent). This is the one exception to
+the "parent is required" constraint — Epics from the FR
+path are explicitly top-level.
+
+Also fetch the Feature Request's labels for inheritance
+in Step 6:
+
+```
+getJiraIssue:
+  cloudId: redhat.atlassian.net
+  issueIdOrKey: "{FR key}"
+  fields: ["labels"]
+```
 
 ## Step 4: Search Existing Jira Items
 
@@ -208,6 +251,21 @@ Before the first Jira call, resolve the **cloudId** by
 calling `getAccessibleAtlassianResources` and picking the
 `redhat.atlassian.net` site.
 
+### Label inheritance
+
+If the starting context is a Feature Request or Feature,
+fetch its labels (if not already fetched in Step 3):
+
+```
+getJiraIssue:
+  cloudId: {cloudId}
+  issueIdOrKey: "{FR or Feature key}"
+  fields: ["labels"]
+```
+
+These labels are passed via `additional_fields` on every
+`createJiraIssue` call below — both Epics and Stories.
+
 ### Creating items
 
 Create Epics first, then Stories (so Stories can reference
@@ -222,6 +280,8 @@ createJiraIssue:
   description: "{markdown description with AC}"
   contentFormat: "markdown"
   parent: "{parent key}"
+  additional_fields:
+    labels: ["{inherited labels}"]
 ```
 
 Immediately after creating each item, transition it from
@@ -235,12 +295,27 @@ transitionJiraIssue:
     id: "31"
 ```
 
+Then **verify** the transition succeeded:
+
+```
+getJiraIssue:
+  cloudId: {cloudId}
+  issueIdOrKey: "{newly created key}"
+  fields: ["status"]
+```
+
+If the status is still New after the first attempt, retry
+the transition once. If it fails again (two attempts total),
+report the error to the user and continue with the next item.
+
 This applies to every created Epic and Story. Do not leave
 any item in New status.
 
 ### Updating items
 
-Fetch the current description first, then merge changes:
+Fetch the current description first, then merge changes.
+Also add any inherited labels that the item doesn't already
+have:
 
 ```
 editJiraIssue:
@@ -248,6 +323,7 @@ editJiraIssue:
   issueIdOrKey: "{issue key}"
   fields:
     description: "{updated markdown}"
+    labels: ["{existing labels}", "{inherited labels}"]
   contentFormat: "markdown"
 ```
 
@@ -356,10 +432,17 @@ Options:
 
 ### 8c. Execute the split
 
-1. Create new Epic (if proposed) via `createJiraIssue`
-2. Create the smaller stories via `createJiraIssue`
+Follow the same creation procedure as Step 6:
+
+1. Create new Epic (if proposed) via `createJiraIssue` —
+   include inherited labels via `additional_fields`
+2. Create the smaller stories via `createJiraIssue` —
+   include inherited labels via `additional_fields`
 3. Transition every newly created item to **Refinement**
-   (transition ID `31`) — same as Step 6
+   (transition ID `31`), then verify the status. If still
+   New after the first attempt, retry once. If it fails
+   again (two attempts total), report the error and
+   continue.
 4. Close or update the original oversized story — add a
    comment noting it was split, link to the new stories
 5. Re-run `/estimate-story` and `/estimate-risk` on the new
@@ -367,6 +450,33 @@ Options:
 6. Re-run `/estimate-epic` on all affected Epics
 
 ## Step 9: Report
+
+### Feature Request summary comment
+
+If the starting context was a Feature Request, post a
+summary comment on it listing all final work items (after
+any splits in Step 8). Use bare issue keys for Jira
+auto-linking — do not wrap them in brackets:
+
+```
+addCommentToJiraIssue:
+  cloudId: {cloudId}
+  issueIdOrKey: "{FR key}"
+  commentBody: |
+    Work items created from this Feature Request:
+
+    Epics:
+    - OLS-2001 — {epic summary}
+
+    Stories:
+    - OLS-1001 — {story summary}
+    - OLS-1002 — {story summary}
+
+    Created by make-jira-from-spec.
+  contentFormat: "markdown"
+```
+
+### Summary table
 
 Print a summary table of everything created and updated:
 
@@ -393,7 +503,8 @@ Spec sources:
   Jira issues without explicit user approval (Step 5, Step
   8b).
 - **Parent is required** — always ask if not provided. Do
-  not create orphan stories.
+  not create orphan stories. Exception: Epics created from
+  the Feature Request path are top-level (no parent).
 - **Scoped search only** — when searching for existing
   items, only look at children of the user-provided parent.
   Do not search the entire project.
@@ -410,3 +521,16 @@ Spec sources:
 - **Use markdown contentFormat** — all Jira descriptions use
   `contentFormat: "markdown"`. The Jira MCP server converts
   to ADF automatically.
+- **Label inheritance** — when the starting context is a
+  Feature Request or Feature, copy its labels to every
+  created and updated item (Steps 6 and 8c).
+- **Transition verification** — after transitioning any item
+  to Refinement, verify the status. Retry once if it fails.
+  Report the error after two attempts total.
+- **FR summary comment in Step 9** — the comment on the
+  Feature Request is posted in Step 9, after all items
+  (including splits) are final. Use bare issue keys for
+  Jira auto-linking.
+- **JQL escaping** — strip reserved characters (`-`, `(`,
+  `)`, `[`, `]`, `"`, `'`, `+`, `&`, `|`, `!`, `{`, `}`)
+  from search terms before building JQL queries.
