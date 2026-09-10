@@ -69,7 +69,7 @@ Each file follows the naming convention `NNNN-slug.md` (e.g., `0001-langchain-ll
 ### MCP Tool RBAC (2026-08)
 | # | Decision | Repos |
 |---|---|---|
-| [0038](0038-mcp-tool-rbac-resolution.md) | RBAC for MCP tool calls: server-published `_meta` contract → oc-IR fallback → fail-closed, with a hard deny ceiling | agentic-operator, agentic-sandbox, operator (ocp-mcp) |
+| [0038](0038-mcp-tool-rbac-resolution.md) | RBAC for MCP tool calls: analysis instructions for server-published `_meta` contract → oc-IR fallback → fail-closed; operator materialization unchanged | agentic-operator (instructions), operator (ocp-mcp RFE) |
 
 ### Timeout Enforcement (2026-08)
 | # | Decision | Repos |

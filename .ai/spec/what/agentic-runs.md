@@ -42,7 +42,7 @@ An external event source creates an `AgenticRun` CR to initiate a workflow. Any 
 
 ### Phase 4: Execution
 
-17. The operator materializes RBAC (ServiceAccount, Role, RoleBinding) scoped to the approved option's requirements. When a remediation step is an MCP tool call rather than an `oc`/`kubectl` command, its RBAC is resolved via the `_meta` contract → oc-IR fallback → fail-closed order in `mcp-tool-rbac.md` (OLS-3680), with a hard deny ceiling applied before materialization.
+17. The operator materializes RBAC (ServiceAccount, Role, RoleBinding) scoped to the approved option's requirements. The operator does not distinguish MCP-derived PolicyRules from oc-derived ones — MCP tool RBAC is resolved by the **analysis agent** (via `_meta` contract → oc-IR fallback → fail-closed, per `mcp-tool-rbac.md` OLS-3680) and reported in the standard `RemediationOption` format; the operator materializes whatever PolicyRules appear.
 18. The operator creates an input ConfigMap with the execution **query** (approved option JSON) and **system instructions**, then provisions a sandbox pod. [OLS-3066] [PLANNED: OLS-3491] Execution instructions (follow script exactly; dry-run mutations) are resolved from the execution step's Agent CR and passed on the system channel.
 19. The sandbox agent executes the remediation actions by running the approved bash commands in order.
 20. The sandbox creates the `ExecutionResult` CR via `oc`, and the operator processes it upon watch notification. [OLS-3066]
@@ -143,5 +143,5 @@ Timeout fields and defaults are: analysis 600 seconds, execution 600 seconds, ve
 | ~~OLS-3268~~ | ~~Analysis can signal `actionRequired=false` to auto-complete with `NoActionRequired` phase~~ [DONE: OLS-3268] |
 | ~~OLS-3295~~ | ~~Rename `Proposal` → `AgenticRun`, `ProposalApproval` → `AgenticRunApproval`, `ProposalResult` → `RemediationPlan` across CRDs, API, CLI, console, and docs~~ [DONE: OLS-3295] |
 | OLS-3441 | Script-grounded RBAC: analysis produces concrete bash scripts and derives RBAC from commands; execution dry-runs mutations before applying |
-| OLS-3680 | MCP tool RBAC resolution: derive execution RBAC for MCP tool-call steps via server-published `_meta` (operator-managed servers) → oc-IR fallback → fail-closed, with a hard deny ceiling. See `mcp-tool-rbac.md`. |
+| OLS-3680 | MCP tool RBAC resolution: analysis instructions teach the agent to derive execution RBAC for MCP tool-call steps via server-published `_meta` (operator-managed servers) → oc-IR fallback → fail-closed. Operator materialization pipeline unchanged. See `mcp-tool-rbac.md`. |
 | OLS-3657 | Event adapter: Jira-triggered AgenticRuns for automated bug triage (prototype in lightspeed-team-harness) |
