@@ -50,27 +50,28 @@ The adapter operates in one of two modes, controlled by config:
 
 13. The adapter maintains an in-memory map of `spokeName → pollingLoop` (goroutine + cancel context). This map is the only mutable state.
 14. Each spoke polling loop runs independently on the global `pollInterval` tick.
-15. The AlertManager endpoint on each spoke is `alertmanager-main.openshift-monitoring.svc:9094`, accessed via the spoke kubeconfig (kube-api proxy or direct).
-16. If a spoke's AlertManager is unreachable, the adapter MUST log an error and continue polling other spokes. One spoke failure MUST NOT affect other spokes.
+15. The adapter accesses each spoke's AlertManager through the kube-api service proxy: `/api/v1/namespaces/openshift-monitoring/services/alertmanager-main:web/proxy/`. This works uniformly in both MCE mode (cluster-proxy) and secret mode (direct kube-api) because the spoke kubeconfig already provides kube-api access — no external Route or internal DNS resolution required.
+16. The spoke SA MUST have RBAC to proxy to services in the `openshift-monitoring` namespace in addition to `cluster-monitoring-view`.
+17. If a spoke's AlertManager is unreachable, the adapter MUST log an error and continue polling other spokes. One spoke failure MUST NOT affect other spokes.
 
 ### AgenticRun Creation (multi-cluster mode)
 
-17. Every AgenticRun created in multi-cluster mode MUST set `spec.targetCluster` to the SpokeCluster name.
-18. Every AgenticRun created in multi-cluster mode MUST carry the label `hub.openshift.io/spoke-cluster: {spoke-name}`.
-19. The `hub.openshift.io/spoke-cluster` label MUST NOT be set in single-cluster mode.
-20. AgenticRuns are created on the hub cluster using the adapter's own pod SA (in-cluster config). The spoke kubeconfig is only used for AlertManager access.
-21. AgenticRuns are created in the `openshift-lightspeed` namespace on the hub.
+18. Every AgenticRun created in multi-cluster mode MUST set `spec.targetCluster` to the SpokeCluster name.
+19. Every AgenticRun created in multi-cluster mode MUST carry the label `hub.openshift.io/spoke-cluster: {spoke-name}`.
+20. The `hub.openshift.io/spoke-cluster` label MUST NOT be set in single-cluster mode.
+21. AgenticRuns are created on the hub cluster using the adapter's own pod SA (in-cluster config). The spoke kubeconfig is only used for AlertManager access.
+22. AgenticRuns are created in the `openshift-lightspeed` namespace on the hub.
 
 ### Deduplication
 
-22. In multi-cluster mode, `ListAgenticRuns` MUST include the `hub.openshift.io/spoke-cluster` label in its label selector, scoping dedup to the originating spoke.
-23. The same alert firing on two different spokes MUST produce two separate AgenticRuns — no cross-spoke dedup.
-24. In single-cluster mode, dedup behavior is unchanged (no spoke label filter).
+23. In multi-cluster mode, `ListAgenticRuns` MUST include the `hub.openshift.io/spoke-cluster` label in its label selector, scoping dedup to the originating spoke.
+24. The same alert firing on two different spokes MUST produce two separate AgenticRuns — no cross-spoke dedup.
+25. In single-cluster mode, dedup behavior is unchanged (no spoke label filter).
 
 ### Hub SA (hub-side operations)
 
-25. The adapter uses its own pod ServiceAccount for all hub-side operations: creating AgenticRuns, listing AgenticRuns (dedup), reading Secrets, watching SpokeCluster CRs.
-26. The pod SA requires RBAC on the hub: create/list AgenticRuns in `openshift-lightspeed`, get Secrets in `openshift-lightspeed`, watch/list SpokeCluster CRs (cluster-scoped).
+26. The adapter uses its own pod ServiceAccount for all hub-side operations: creating AgenticRuns, listing AgenticRuns (dedup), reading Secrets, watching SpokeCluster CRs.
+27. The pod SA requires RBAC on the hub: create/list AgenticRuns in `openshift-lightspeed`, get Secrets in `openshift-lightspeed`, watch/list SpokeCluster CRs (cluster-scoped).
 
 ## Spec Changes Required in Other Files
 
