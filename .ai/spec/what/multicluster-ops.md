@@ -58,7 +58,7 @@ The hub is control plane only. Full agentic stack deployed to spoke. Sandboxes r
 
 ### Standalone Adapter Path (alerts-adapter)
 
-1. Hub-side alerts-adapter polls spoke's AlertManager via remote kube-api using the standing kubeconfig Secret (`spoke-kubeconfig-{spoke-name}`).
+1. A single alerts-adapter instance on the hub watches `SpokeCluster` CRs and polls each spoke's AlertManager via a dedicated per-spoke kubeconfig Secret (`spoke-alert-kubeconfig-{spoke-name}`), separate from the standing kubeconfig. See [alerts-adapter-multicluster.md](alerts-adapter-multicluster.md) for details.
 2. Adapter creates AgenticRun CR on hub with `spec.targetCluster` set to the SpokeCluster name.
 3. Hub's agentic-operator detects the new AgenticRun. Reads the standing kubeconfig Secret by naming convention: `spoke-kubeconfig-{targetCluster}`. Builds a `rest.Config` from it (transparently routes through MCE proxy if `proxy-url` is present).
 4. **Analysis phase**: Agentic-operator creates a per-step SA (`ls-anl-{run-UID}`) on the spoke via remote kube-api using the standing kubeconfig. Adds the SA to the `lightspeed-agent` reader ClusterRoleBindings on the spoke (same `addReaderSubject` pattern as single-cluster mode). Calls TokenRequest API on the spoke for a 24h token. Creates a sandbox kubeconfig Secret on the hub (`ls-sandbox-kubeconfig-{run-name}-analysis`) with spoke API server + ephemeral token + proxy-url (if present). Mounts into sandbox pod.
@@ -81,7 +81,7 @@ The hub is control plane only. Full agentic stack deployed to spoke. Sandboxes r
 
 ### Standing Kubeconfig
 
-The hub operator creates a normalized kubeconfig Secret per spoke during registration: `spoke-kubeconfig-{spoke-name}`. This is the single integration contract between the hub operator and all consumers (agentic-operator, standalone adapters).
+The hub operator creates a normalized kubeconfig Secret per spoke during registration: `spoke-kubeconfig-{spoke-name}`. This is the integration contract between the hub operator and the agentic-operator. Standalone adapters (e.g., alerts-adapter) use their own per-spoke credential Secrets — see [alerts-adapter-multicluster.md](alerts-adapter-multicluster.md).
 
 | Credential source | What the standing kubeconfig contains | MVP |
 |---|---|---|
